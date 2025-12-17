@@ -35,8 +35,13 @@ export async function getStatus(): Promise<SyncStatus> {
   return fetchApi<SyncStatus>('/status')
 }
 
-export async function triggerSync(fullSync = false): Promise<{ message: string; run_id: string }> {
-  return fetchApi(`/sync?full_sync=${fullSync}`, { method: 'POST' })
+export async function triggerSync(
+  fullSync = false,
+  maxRecords?: number
+): Promise<{ message: string; run_id: string; max_records?: number }> {
+  const params = new URLSearchParams({ full_sync: String(fullSync) })
+  if (maxRecords) params.append('max_records', String(maxRecords))
+  return fetchApi(`/sync?${params}`, { method: 'POST' })
 }
 
 export async function getSyncRuns(limit = 20): Promise<SyncRun[]> {

@@ -39,7 +39,8 @@ async def get_status():
 @router.post("/sync")
 async def trigger_sync(
     background_tasks: BackgroundTasks,
-    full_sync: bool = Query(False, description="Run full sync instead of incremental")
+    full_sync: bool = Query(False, description="Run full sync instead of incremental"),
+    max_records: Optional[int] = Query(None, description="Limit number of records to sync (for testing)")
 ):
     """Trigger a sync operation."""
     from ..main import get_sync_engine
@@ -55,11 +56,11 @@ async def trigger_sync(
 
     async def run_sync():
         engine = get_sync_engine()
-        await engine.run_sync(full_sync=full_sync, run_id=run_id)
+        await engine.run_sync(full_sync=full_sync, run_id=run_id, max_records=max_records)
 
     background_tasks.add_task(run_sync)
 
-    return {"message": "Sync started", "run_id": run_id, "full_sync": full_sync}
+    return {"message": "Sync started", "run_id": run_id, "full_sync": full_sync, "max_records": max_records}
 
 
 @router.get("/images")

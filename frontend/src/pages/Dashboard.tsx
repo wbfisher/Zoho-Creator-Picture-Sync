@@ -34,9 +34,13 @@ export default function Dashboard() {
   })
 
   const syncMutation = useMutation({
-    mutationFn: triggerSync,
+    mutationFn: ({ fullSync, maxRecords }: { fullSync: boolean; maxRecords?: number }) =>
+      triggerSync(fullSync, maxRecords),
     onSuccess: (data) => {
-      toast({ title: 'Sync Started', description: data.message })
+      const desc = data.max_records
+        ? `${data.message} (limited to ${data.max_records} records)`
+        : data.message
+      toast({ title: 'Sync Started', description: desc })
       queryClient.invalidateQueries({ queryKey: ['status'] })
       queryClient.invalidateQueries({ queryKey: ['runs'] })
     },
@@ -116,9 +120,17 @@ export default function Dashboard() {
             Manually trigger a sync to import new or updated images from Zoho Creator
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex gap-3">
+        <CardContent className="flex flex-wrap gap-3">
           <Button
-            onClick={() => syncMutation.mutate(false)}
+            variant="outline"
+            onClick={() => syncMutation.mutate({ fullSync: false, maxRecords: 10 })}
+            disabled={syncMutation.isPending || status?.is_running}
+          >
+            <Play className="mr-2 h-4 w-4" />
+            Test Sync (10 records)
+          </Button>
+          <Button
+            onClick={() => syncMutation.mutate({ fullSync: false })}
             disabled={syncMutation.isPending || status?.is_running}
           >
             {status?.is_running ? (
@@ -135,7 +147,7 @@ export default function Dashboard() {
           </Button>
           <Button
             variant="secondary"
-            onClick={() => syncMutation.mutate(true)}
+            onClick={() => syncMutation.mutate({ fullSync: true })}
             disabled={syncMutation.isPending || status?.is_running}
           >
             <Play className="mr-2 h-4 w-4" />
