@@ -45,7 +45,8 @@ export async function triggerSync(
 }
 
 export async function getSyncRuns(limit = 20): Promise<SyncRun[]> {
-  return fetchApi<SyncRun[]>(`/runs?limit=${limit}`)
+  const data = await fetchApi<{ runs: SyncRun[] }>(`/runs?limit=${limit}`)
+  return data.runs
 }
 
 // Images
@@ -66,11 +67,22 @@ export async function getImages(
   if (filters.date_from) params.append('date_from', filters.date_from)
   if (filters.date_to) params.append('date_to', filters.date_to)
 
-  return fetchApi<PaginatedResponse<Image>>(`/images?${params}`)
+  const data = await fetchApi<{ images: Image[]; count: number }>(`/images?${params}`)
+  return {
+    items: data.images,
+    total: data.count,
+    limit,
+    offset,
+  }
 }
 
 export async function getFilterValues(): Promise<FilterValues> {
-  return fetchApi<FilterValues>('/images/filters')
+  try {
+    return await fetchApi<FilterValues>('/images/filters')
+  } catch {
+    // Endpoint may not exist yet
+    return { job_captain_timesheets: [], project_names: [], departments: [] }
+  }
 }
 
 // Bulk download
@@ -89,17 +101,30 @@ export async function downloadImages(imageIds: string[]): Promise<Blob> {
 }
 
 // Config
-export async function getConfig(): Promise<AppConfig> {
-  return fetchApi<AppConfig>('/config')
+export async function getConfig(): Promise<AppConfig | null> {
+  try {
+    return await fetchApi<AppConfig>('/config')
+  } catch {
+    // Config endpoint may not exist yet
+    return null
+  }
 }
 
-export async function updateConfig(config: Partial<AppConfig>): Promise<AppConfig> {
-  return fetchApi<AppConfig>('/config', {
-    method: 'PUT',
-    body: JSON.stringify(config),
-  })
+export async function updateConfig(config: Partial<AppConfig>): Promise<AppConfig | null> {
+  try {
+    return await fetchApi<AppConfig>('/config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    })
+  } catch {
+    return null
+  }
 }
 
 export async function testZohoConnection(): Promise<{ success: boolean; message: string; records_count?: number }> {
-  return fetchApi('/config/test-zoho', { method: 'POST' })
+  try {
+    return await fetchApi('/config/test-zoho', { method: 'POST' })
+  } catch {
+    return { success: false, message: 'Config endpoint not available' }
+  }
 }
