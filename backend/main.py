@@ -128,11 +128,24 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api")
 
 # Serve frontend static files if they exist
-frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
-frontend_index = os.path.join(frontend_path, "index.html")
-if os.path.exists(frontend_index):
+frontend_dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+frontend_index = os.path.join(frontend_dist, "index.html")
+if os.path.exists(frontend_dist):
+    # Mount assets directory for JS/CSS files
+    assets_path = os.path.join(frontend_dist, "assets")
+    if os.path.exists(assets_path):
+        app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
+
     @app.get("/")
     async def serve_frontend():
+        return FileResponse(frontend_index)
+
+    # Catch-all for SPA routing
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Don't intercept API routes
+        if full_path.startswith("api/"):
+            return {"detail": "Not found"}
         return FileResponse(frontend_index)
 else:
     @app.get("/")
