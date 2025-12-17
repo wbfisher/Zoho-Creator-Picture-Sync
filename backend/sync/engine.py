@@ -62,9 +62,15 @@ class SyncEngine:
             # Determine start date for incremental sync
             modified_since = None
             if not full_sync:
-                last_run = await self.runs_repo.get_last_successful_run()
-                if last_run and last_run.get("completed_at"):
-                    modified_since = datetime.fromisoformat(last_run["completed_at"].replace("Z", "+00:00"))
+                # Check if we have any images - if not, force full sync
+                stats_check = await self.images_repo.get_stats()
+                if stats_check.get("total_images", 0) == 0:
+                    logger.info("No images in database, forcing full sync")
+                    full_sync = True
+                else:
+                    last_run = await self.runs_repo.get_last_successful_run()
+                    if last_run and last_run.get("completed_at"):
+                        modified_since = datetime.fromisoformat(last_run["completed_at"].replace("Z", "+00:00"))
 
             logger.info(f"Starting sync (full={full_sync}, modified_since={modified_since}, max_records={max_records})")
 
