@@ -1,6 +1,7 @@
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { RowsPhotoAlbum } from 'react-photo-album'
+import 'react-photo-album/rows.css'
 import { getImages, getFilterValues } from '@/lib/api'
 import { useGalleryStore } from '@/store'
 import { Button } from '@/components/ui/button'
@@ -17,7 +18,7 @@ import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { formatBytes, debounce } from '@/lib/utils'
 import { Lightbox } from '@/components/Lightbox'
-import type { Image } from '@/types'
+import type { Image as ImageType } from '@/types'
 import {
   Search,
   X,
@@ -26,16 +27,15 @@ import {
   CheckSquare,
   Square,
   Image as ImageIcon,
+  AlertCircle,
 } from 'lucide-react'
 import JSZip from 'jszip'
 
-const ITEMS_PER_PAGE = 100
-const COLUMNS = 6
-const ROW_HEIGHT = 180
+const ITEMS_PER_PAGE = 50
 
 export default function Gallery() {
   const { toast } = useToast()
-  const parentRef = useRef<HTMLDivElement>(null)
+  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set())
 
   const {
     selectedImages,
@@ -63,6 +63,7 @@ export default function Gallery() {
     isFetchingNextPage,
     isLoading,
     isError,
+    error,
   } = useInfiniteQuery({
     queryKey: ['images', filters],
     queryFn: ({ pageParam = 0 }) => getImages(filters, ITEMS_PER_PAGE, pageParam),
@@ -82,29 +83,27 @@ export default function Gallery() {
     setGalleryImages(allImages)
   }, [allImages, setGalleryImages])
 
-  // Calculate rows for virtualization
-  const rows = Math.ceil(allImages.length / COLUMNS)
+  // Extended photo type to include our custom data
+  type ExtendedPhoto = {
+    src: string
+    width: number
+    height: number
+    key: string
+    alt: string
+    image: ImageType
+    originalIndex: number
+  }
 
-  const rowVirtualizer = useVirtualizer({
-    count: rows + (hasNextPage ? 1 : 0), // +1 for loading row
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 5,
-  })
-
-  // Load more when approaching end
-  useEffect(() => {
-    const [lastItem] = [...rowVirtualizer.getVirtualItems()].reverse()
-    if (!lastItem) return
-
-    if (
-      lastItem.index >= rows - 1 &&
-      hasNextPage &&
-      !isFetchingNextPage
-    ) {
-      fetchNextPage()
-    }
-  }, [rowVirtualizer.getVirtualItems(), hasNextPage, isFetchingNextPage, fetchNextPage, rows])
+  // Convert images to photo album format
+  const photos: ExtendedPhoto[] = allImages.map((image, index) => ({
+    src: image.url || '',
+    width: 800,
+    height: 600,
+    key: image.id,
+    alt: image.original_filename,
+    image,
+    originalIndex: index,
+  }))
 
   // Debounced search
   const debouncedSearch = useCallback(
@@ -122,7 +121,6 @@ export default function Gallery() {
       const zip = new JSZip()
       const imageIds = Array.from(selectedImages)
 
-      // Fetch each selected image
       for (const id of imageIds) {
         const image = allImages.find((img) => img.id === id)
         if (!image?.url) continue
@@ -143,8 +141,8 @@ export default function Gallery() {
 
       toast({ title: 'Download complete', description: `${selectedImages.size} images downloaded` })
       clearSelection()
-    } catch (error) {
-      toast({ title: 'Download failed', description: String(error), variant: 'destructive' })
+    } catch (err) {
+      toast({ title: 'Download failed', description: String(err), variant: 'destructive' })
     }
   }
 
@@ -154,6 +152,10 @@ export default function Gallery() {
     } else {
       selectAll(allImages.map((img) => img.id))
     }
+  }
+
+  const handleImageError = (imageId: string) => {
+    setImageErrors((prev) => new Set(prev).add(imageId))
   }
 
   const activeFiltersCount = Object.values(filters).filter(Boolean).length
@@ -256,23 +258,24 @@ export default function Gallery() {
           {isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
-            <span>{totalImages.toLocaleString()} images</span>
+            <span>
+              {allImages.length.toLocaleString()} of {totalImages.toLocaleString()} images
+            </span>
           )}
         </div>
       </div>
 
-      {/* Virtualized Grid */}
-      <div
-        ref={parentRef}
-        className="flex-1 overflow-auto rounded-lg border bg-muted/30"
-      >
+      {/* Gallery Grid */}
+      <div className="flex-1 overflow-auto rounded-lg border bg-muted/30 p-4">
         {isLoading ? (
           <div className="flex h-full items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         ) : isError ? (
-          <div className="flex h-full items-center justify-center text-muted-foreground">
-            Failed to load images
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
+            <AlertCircle className="h-12 w-12" />
+            <p>Failed to load images</p>
+            <p className="text-sm">{error?.message}</p>
           </div>
         ) : allImages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
@@ -285,121 +288,101 @@ export default function Gallery() {
             )}
           </div>
         ) : (
-          <div
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              width: '100%',
-              position: 'relative',
-            }}
-          >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const startIndex = virtualRow.index * COLUMNS
-              const rowImages = allImages.slice(startIndex, startIndex + COLUMNS)
+          <div className="space-y-4">
+            <RowsPhotoAlbum
+              photos={photos}
+              targetRowHeight={180}
+              rowConstraints={{ minPhotos: 3, maxPhotos: 6 }}
+              spacing={8}
+              render={{
+                photo: (_props, { photo, width, height }) => {
+                  const extPhoto = photo as ExtendedPhoto
+                  const { image, originalIndex } = extPhoto
+                  const isSelected = selectedImages.has(image.id)
+                  const hasError = imageErrors.has(image.id)
 
-              // Loading indicator row
-              if (virtualRow.index >= rows) {
-                return (
-                  <div
-                    key="loading"
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      height: `${virtualRow.size}px`,
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                    className="flex items-center justify-center"
-                  >
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  </div>
-                )
-              }
-
-              return (
-                <div
-                  key={virtualRow.index}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: `${virtualRow.size}px`,
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
-                  className="grid grid-cols-6 gap-2 p-2"
-                >
-                  {rowImages.map((image, colIndex) => (
-                    <ImageCard
+                  return (
+                    <div
                       key={image.id}
-                      image={image}
-                      index={startIndex + colIndex}
-                      isSelected={selectedImages.has(image.id)}
-                      onSelect={() => toggleSelection(image.id)}
-                      onOpen={() => openLightbox(image, startIndex + colIndex)}
-                    />
-                  ))}
-                </div>
-              )
-            })}
+                      className={`group relative overflow-hidden rounded-md bg-background transition-all cursor-pointer ${
+                        isSelected ? 'ring-2 ring-primary ring-offset-2' : ''
+                      }`}
+                      style={{ width, height }}
+                    >
+                      {hasError || !image.url ? (
+                        <div className="flex h-full w-full items-center justify-center bg-muted">
+                          <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                        </div>
+                      ) : (
+                        <img
+                          src={image.url}
+                          alt={image.original_filename}
+                          loading="lazy"
+                          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                          onClick={() => openLightbox(image, originalIndex)}
+                          onError={() => handleImageError(image.id)}
+                        />
+                      )}
+
+                      {/* Checkbox overlay */}
+                      <div
+                        className={`absolute left-2 top-2 transition-opacity ${
+                          isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                        }`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleSelection(image.id)}
+                          className="h-5 w-5 border-2 border-white bg-black/50 data-[state=checked]:bg-primary"
+                        />
+                      </div>
+
+                      {/* Info overlay */}
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+                        <p className="truncate text-xs font-medium text-white">
+                          {image.original_filename}
+                        </p>
+                        <div className="flex items-center gap-1 text-xs text-white/70">
+                          <span>{formatBytes(image.file_size_bytes)}</span>
+                          {image.was_processed && (
+                            <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+                              WebP
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                },
+              }}
+            />
+
+            {/* Load more button */}
+            {hasNextPage && (
+              <div className="flex justify-center pt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => fetchNextPage()}
+                  disabled={isFetchingNextPage}
+                >
+                  {isFetchingNextPage ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    <>Load more images</>
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Lightbox */}
       <Lightbox />
-    </div>
-  )
-}
-
-interface ImageCardProps {
-  image: Image
-  index: number
-  isSelected: boolean
-  onSelect: () => void
-  onOpen: () => void
-}
-
-function ImageCard({ image, isSelected, onSelect, onOpen }: ImageCardProps) {
-  return (
-    <div
-      className={`group relative aspect-square overflow-hidden rounded-md bg-background transition-all ${
-        isSelected ? 'ring-2 ring-primary ring-offset-2' : ''
-      }`}
-    >
-      <img
-        src={image.url}
-        alt={image.original_filename}
-        loading="lazy"
-        className="h-full w-full cursor-pointer object-cover transition-transform group-hover:scale-105"
-        onClick={onOpen}
-      />
-
-      {/* Checkbox overlay */}
-      <div
-        className={`absolute left-2 top-2 transition-opacity ${
-          isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-        }`}
-      >
-        <Checkbox
-          checked={isSelected}
-          onCheckedChange={onSelect}
-          className="h-5 w-5 border-2 border-white bg-black/50 data-[state=checked]:bg-primary"
-        />
-      </div>
-
-      {/* Info overlay */}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
-        <p className="truncate text-xs font-medium text-white">{image.original_filename}</p>
-        <div className="flex items-center gap-1 text-xs text-white/70">
-          <span>{formatBytes(image.file_size_bytes)}</span>
-          {image.was_processed && (
-            <Badge variant="secondary" className="h-4 px-1 text-[10px]">
-              WebP
-            </Badge>
-          )}
-        </div>
-      </div>
     </div>
   )
 }
