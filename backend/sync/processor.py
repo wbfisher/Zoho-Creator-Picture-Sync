@@ -64,10 +64,64 @@ class ImageProcessor:
     
     def process_if_needed(self, image_bytes: bytes, filename: str) -> tuple[bytes, str, bool]:
         """Process only if over size threshold.
-        
+
         Returns (bytes, filename, was_processed)
         """
         if self.needs_processing(image_bytes):
             processed, new_name = self.process(image_bytes, filename)
             return processed, new_name, True
+
+        # Even if not processed, ensure filename has an extension
+        filename = self._ensure_extension(image_bytes, filename)
         return image_bytes, filename, False
+
+    def _ensure_extension(self, image_bytes: bytes, filename: str) -> str:
+        """Ensure filename has a proper extension based on image content."""
+        # Check if filename already has an image extension
+        lower_name = filename.lower()
+        if any(lower_name.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.bmp', '.tiff']):
+            return filename
+
+        # Detect image format from bytes
+        ext = self._detect_format(image_bytes)
+
+        # Remove any existing non-image extension and add detected one
+        base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
+        return f"{base_name}{ext}"
+
+    def _detect_format(self, image_bytes: bytes) -> str:
+        """Detect image format from magic bytes."""
+        if len(image_bytes) < 12:
+            return ".jpg"  # Default fallback
+
+        # Check magic bytes
+        if image_bytes[:3] == b'\xff\xd8\xff':
+            return ".jpg"
+        elif image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+            return ".png"
+        elif image_bytes[:6] in (b'GIF87a', b'GIF89a'):
+            return ".gif"
+        elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+            return ".webp"
+        elif image_bytes[4:12] == b'ftypheic' or image_bytes[4:12] == b'ftypmif1':
+            return ".heic"
+        elif image_bytes[:2] == b'BM':
+            return ".bmp"
+        elif image_bytes[:4] in (b'II*\x00', b'MM\x00*'):
+            return ".tiff"
+        else:
+            # Try to detect using PIL as fallback
+            try:
+                img = Image.open(io.BytesIO(image_bytes))
+                format_map = {
+                    'JPEG': '.jpg',
+                    'PNG': '.png',
+                    'GIF': '.gif',
+                    'WEBP': '.webp',
+                    'HEIC': '.heic',
+                    'BMP': '.bmp',
+                    'TIFF': '.tiff',
+                }
+                return format_map.get(img.format, '.jpg')
+            except Exception:
+                return ".jpg"  # Default fallback
