@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useState, useMemo } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import { getImages, getFilterValues } from '@/lib/api'
 import { useGalleryStore } from '@/store'
@@ -72,8 +72,11 @@ export default function Gallery() {
     initialPageParam: 0,
   })
 
-  // Flatten all pages into single array
-  const allImages = data?.pages.flatMap((page) => page.items) ?? []
+  // Flatten all pages into single array - memoized to prevent infinite loops
+  const allImages = useMemo(
+    () => data?.pages.flatMap((page) => page.items) ?? [],
+    [data?.pages]
+  )
   const totalImages = data?.pages[0]?.total ?? 0
 
   // Update gallery store for lightbox navigation
