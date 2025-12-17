@@ -370,6 +370,13 @@ function ImageCard({ image, isSelected, hasError, onSelect, onOpen, onError }: I
         <p className="truncate text-xs font-medium text-white">
           {image.original_filename}
         </p>
+        {image.project_name && (
+          <p className="truncate text-xs text-white/80">
+            {typeof image.project_name === 'object'
+              ? String((image.project_name as Record<string, unknown>).display_value ?? JSON.stringify(image.project_name))
+              : String(image.project_name)}
+          </p>
+        )}
         <div className="flex items-center gap-1 text-xs text-white/70">
           <span>{formatBytes(image.file_size_bytes)}</span>
           {image.was_processed && (

@@ -1,12 +1,40 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime
 
 from db.models import ImageRepository, SyncRunRepository, get_supabase_client
 from config import get_settings
 
 router = APIRouter()
+
+
+def extract_zoho_value(value: Any) -> Optional[str]:
+    """
+    Extract a displayable string from a Zoho field value.
+    Handles lookup fields which return objects like {display_value: "...", ID: "..."}
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value if value else None
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, dict):
+        # Zoho lookup fields return objects with display_value
+        if "display_value" in value:
+            return extract_zoho_value(value["display_value"])
+        if "name" in value:
+            return extract_zoho_value(value["name"])
+        # Return first non-ID string value as fallback
+        for k, v in value.items():
+            if k not in ("ID", "id") and isinstance(v, str) and v:
+                return v
+        return None
+    if isinstance(value, list) and len(value) > 0:
+        # Handle multi-select or array fields
+        return extract_zoho_value(value[0])
+    return str(value) if value else None
 
 
 class ConfigUpdate(BaseModel):
@@ -120,13 +148,14 @@ async def list_images(
                 img["url"] = None
 
         # Extract categorization fields from zoho_metadata for frontend
-        metadata = img.get("zoho_metadata", {})
+        # Uses extract_zoho_value to handle Zoho lookup objects
+        metadata = img.get("zoho_metadata", {}) or {}
         if not img.get("job_captain_timesheet"):
-            img["job_captain_timesheet"] = metadata.get("Add_Job_Captain_Time_Sheet_Number")
+            img["job_captain_timesheet"] = extract_zoho_value(metadata.get("Add_Job_Captain_Time_Sheet_Number"))
         if not img.get("project_name"):
-            img["project_name"] = metadata.get("Project")
+            img["project_name"] = extract_zoho_value(metadata.get("Project"))
         if not img.get("department"):
-            img["department"] = metadata.get("Project_Department")
+            img["department"] = extract_zoho_value(metadata.get("Project_Department"))
 
     # Get total count for pagination
     total_count = await images_repo.get_count(
@@ -313,15 +342,16 @@ async def get_filter_values():
         for row in result.data:
             metadata = row.get("zoho_metadata", {})
             if metadata:
-                jct = metadata.get("Add_Job_Captain_Time_Sheet_Number")
+                # Use extract_zoho_value to handle lookup objects
+                jct = extract_zoho_value(metadata.get("Add_Job_Captain_Time_Sheet_Number"))
                 if jct:
-                    job_captain_timesheets.add(str(jct))
-                proj = metadata.get("Project")
+                    job_captain_timesheets.add(jct)
+                proj = extract_zoho_value(metadata.get("Project"))
                 if proj:
-                    project_names.add(str(proj))
-                dept = metadata.get("Project_Department")
+                    project_names.add(proj)
+                dept = extract_zoho_value(metadata.get("Project_Department"))
                 if dept:
-                    departments.add(str(dept))
+                    departments.add(dept)
 
         return {
             "job_captain_timesheets": sorted(list(job_captain_timesheets)),
