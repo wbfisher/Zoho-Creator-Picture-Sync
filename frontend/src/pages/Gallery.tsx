@@ -182,8 +182,8 @@ export default function Gallery() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Timesheets</SelectItem>
-            {filterValues?.job_captain_timesheets.map((jc) => (
-              <SelectItem key={jc} value={jc}>{jc}</SelectItem>
+            {(filterValues?.job_captain_timesheets ?? []).filter(Boolean).map((jc) => (
+              <SelectItem key={String(jc)} value={String(jc)}>{String(jc)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -197,8 +197,8 @@ export default function Gallery() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Projects</SelectItem>
-            {filterValues?.project_names.map((proj) => (
-              <SelectItem key={proj} value={proj}>{proj}</SelectItem>
+            {(filterValues?.project_names ?? []).filter(Boolean).map((proj) => (
+              <SelectItem key={String(proj)} value={String(proj)}>{String(proj)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -212,8 +212,8 @@ export default function Gallery() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Departments</SelectItem>
-            {filterValues?.departments.map((dept) => (
-              <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+            {(filterValues?.departments ?? []).filter(Boolean).map((dept) => (
+              <SelectItem key={String(dept)} value={String(dept)}>{String(dept)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
