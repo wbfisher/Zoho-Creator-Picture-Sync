@@ -148,6 +148,17 @@ async def list_runs(limit: int = Query(20, ge=1, le=100)):
     return {"runs": runs}
 
 
+@router.get("/runs/{run_id}")
+async def get_run(run_id: str):
+    """Get details of a specific sync run including error log."""
+    settings = get_settings()
+    client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
+    result = client.table("sync_runs").select("*").eq("id", run_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return result.data[0]
+
+
 @router.get("/health")
 async def health_check():
     """Health check endpoint."""
@@ -193,6 +204,7 @@ async def update_config(config: ConfigUpdate):
 @router.post("/config/test-zoho")
 async def test_zoho_connection():
     """Test connection to Zoho Creator API."""
+    import traceback
     try:
         from main import get_sync_engine
         engine = get_sync_engine()
@@ -211,7 +223,9 @@ async def test_zoho_connection():
     except Exception as e:
         return {
             "success": False,
-            "message": f"Connection failed: {str(e)}"
+            "message": f"Connection failed: {str(e)}",
+            "error_type": type(e).__name__,
+            "traceback": traceback.format_exc()
         }
 
 
