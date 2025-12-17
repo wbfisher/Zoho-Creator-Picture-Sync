@@ -16,6 +16,21 @@ import {
   ImageIcon,
 } from 'lucide-react'
 
+// Safely convert any value to a displayable string
+function safeString(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string') return value || null
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'object') {
+    // Handle Zoho lookup fields which might be objects like { display_value: "...", ID: "..." }
+    const obj = value as Record<string, unknown>
+    if ('display_value' in obj) return safeString(obj.display_value)
+    if ('name' in obj) return safeString(obj.name)
+    return JSON.stringify(value)
+  }
+  return String(value)
+}
+
 export function Lightbox() {
   const {
     lightboxImage,
@@ -169,22 +184,22 @@ export function Lightbox() {
             {/* Metadata footer */}
             <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black/80 to-transparent p-4">
               <div className="flex flex-wrap gap-4 text-sm text-white/80">
-                {lightboxImage.project_name && (
+                {safeString(lightboxImage.project_name) && (
                   <div>
                     <span className="text-white/50">Project:</span>{' '}
-                    <span className="font-medium">{lightboxImage.project_name}</span>
+                    <span className="font-medium">{safeString(lightboxImage.project_name)}</span>
                   </div>
                 )}
-                {lightboxImage.job_captain_timesheet && (
+                {safeString(lightboxImage.job_captain_timesheet) && (
                   <div>
                     <span className="text-white/50">Job Captain:</span>{' '}
-                    <span className="font-medium">{lightboxImage.job_captain_timesheet}</span>
+                    <span className="font-medium">{safeString(lightboxImage.job_captain_timesheet)}</span>
                   </div>
                 )}
-                {lightboxImage.department && (
+                {safeString(lightboxImage.department) && (
                   <div>
                     <span className="text-white/50">Department:</span>{' '}
-                    <span className="font-medium">{lightboxImage.department}</span>
+                    <span className="font-medium">{safeString(lightboxImage.department)}</span>
                   </div>
                 )}
                 {lightboxImage.synced_at && (
