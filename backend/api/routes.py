@@ -229,6 +229,33 @@ async def test_zoho_connection():
         }
 
 
+@router.get("/debug/sample-record")
+async def get_sample_record():
+    """Debug endpoint: Get a sample record from Zoho to inspect structure."""
+    import traceback
+    try:
+        from main import get_sync_engine
+        engine = get_sync_engine()
+
+        async for record in engine.zoho.fetch_records(engine.report_link_name, limit=1):
+            # Extract image fields to see what we're getting
+            image_fields = engine.zoho.extract_image_fields(record)
+            return {
+                "success": True,
+                "record": record,
+                "extracted_image_fields": image_fields,
+                "field_names": list(record.keys()),
+            }
+
+        return {"success": False, "message": "No records found"}
+    except Exception as e:
+        return {
+            "success": False,
+            "message": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
 @router.get("/images/filters")
 async def get_filter_values():
     """Get distinct values for filter dropdowns."""
