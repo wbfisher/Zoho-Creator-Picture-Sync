@@ -242,6 +242,13 @@ async def debug_images():
     result = client.table("images").select("*").limit(3).execute()
     images = result.data
 
+    # Check what's in the storage bucket
+    try:
+        storage_list = client.storage.from_(settings.supabase_storage_bucket).list()
+        bucket_contents = storage_list
+    except Exception as e:
+        bucket_contents = f"Error listing bucket: {e}"
+
     # Try to create signed URLs and capture any issues
     debug_info = []
     for img in images:
@@ -258,12 +265,23 @@ async def debug_images():
                 info["signed_response"] = signed
                 info["url"] = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
             except Exception as e:
-                info["error"] = str(e)
+                info["signed_error"] = str(e)
+
+            # Try to get public URL as fallback
+            try:
+                public = client.storage.from_(settings.supabase_storage_bucket).get_public_url(
+                    img["storage_path"]
+                )
+                info["public_url"] = public
+            except Exception as e:
+                info["public_error"] = str(e)
+
         debug_info.append(info)
 
     return {
         "bucket": settings.supabase_storage_bucket,
         "image_count": len(images),
+        "bucket_contents": bucket_contents,
         "debug_info": debug_info,
     }
 
