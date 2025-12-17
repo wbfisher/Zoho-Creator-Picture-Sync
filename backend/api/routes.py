@@ -337,8 +337,15 @@ async def get_filter_values():
     settings = get_settings()
     client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
 
+    # Helper to extract display_value from Zoho lookup fields
+    def get_display_value(field_value):
+        if field_value is None:
+            return None
+        if isinstance(field_value, dict):
+            return field_value.get("display_value") or field_value.get("ID")
+        return str(field_value) if field_value else None
+
     # Query distinct values from zoho_metadata
-    # This is a simplified approach - in production you might want to cache these
     try:
         result = client.table("images").select("zoho_metadata").execute()
 
@@ -349,15 +356,17 @@ async def get_filter_values():
         for row in result.data:
             metadata = row.get("zoho_metadata", {})
             if metadata:
-                jct = metadata.get("Add_Job_Captain_Time_Sheet_Number")
+                jct = get_display_value(metadata.get("Add_Job_Captain_Time_Sheet_Number"))
                 if jct:
-                    job_captain_timesheets.add(str(jct))
-                proj = metadata.get("Project")
+                    job_captain_timesheets.add(jct)
+                # Try Project1 first (actual field name), fallback to Project
+                proj = get_display_value(metadata.get("Project1")) or get_display_value(metadata.get("Project"))
                 if proj:
-                    project_names.add(str(proj))
-                dept = metadata.get("Project_Department")
+                    project_names.add(proj)
+                # Try Project_Department1 first, fallback to Project_Department
+                dept = get_display_value(metadata.get("Project_Department1")) or get_display_value(metadata.get("Project_Department"))
                 if dept:
-                    departments.add(str(dept))
+                    departments.add(dept)
 
         return {
             "job_captain_timesheets": sorted(list(job_captain_timesheets)),
