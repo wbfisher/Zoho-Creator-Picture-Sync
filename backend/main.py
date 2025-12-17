@@ -130,24 +130,52 @@ app.include_router(api_router, prefix="/api")
 # Serve frontend static files if they exist
 frontend_dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 frontend_index = os.path.join(frontend_dist, "index.html")
-if os.path.exists(frontend_dist):
+
+# Debug endpoint to check frontend files
+@app.get("/api/debug/frontend")
+async def debug_frontend():
+    """Debug endpoint to check frontend file status."""
+    result = {
+        "frontend_dist": frontend_dist,
+        "frontend_dist_exists": os.path.exists(frontend_dist),
+        "index_html_exists": os.path.exists(frontend_index),
+        "files": [],
+    }
+    if os.path.exists(frontend_dist):
+        for root, dirs, files in os.walk(frontend_dist):
+            for f in files:
+                rel_path = os.path.relpath(os.path.join(root, f), frontend_dist)
+                result["files"].append(rel_path)
+    return result
+
+if os.path.exists(frontend_dist) and os.path.exists(frontend_index):
+    logger.info(f"Frontend dist found at {frontend_dist}")
+
     # Mount assets directory for JS/CSS files
     assets_path = os.path.join(frontend_dist, "assets")
     if os.path.exists(assets_path):
         app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
+        logger.info(f"Mounted /assets from {assets_path}")
 
     @app.get("/")
     async def serve_frontend():
         return FileResponse(frontend_index)
 
-    # Catch-all for SPA routing
+    # Catch-all for SPA routing - must be last
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         # Don't intercept API routes
         if full_path.startswith("api/"):
             return {"detail": "Not found"}
+        # Check if it's a static file request
+        static_file = os.path.join(frontend_dist, full_path)
+        if os.path.isfile(static_file):
+            return FileResponse(static_file)
+        # Otherwise return index.html for SPA routing
         return FileResponse(frontend_index)
 else:
+    logger.warning(f"Frontend dist not found at {frontend_dist}")
+
     @app.get("/")
     async def root():
-        return {"message": "Zoho Pictures Sync API", "docs": "/docs"}
+        return {"message": "Zoho Pictures Sync API", "docs": "/docs", "note": "Frontend not found"}
