@@ -128,13 +128,12 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api")
 
 # Serve frontend static files if they exist
-frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-if os.path.exists(frontend_path):
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="assets")
-    
+frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
+frontend_index = os.path.join(frontend_path, "index.html")
+if os.path.exists(frontend_index):
     @app.get("/")
     async def serve_frontend():
-        return FileResponse(os.path.join(frontend_path, "index.html"))
+        return FileResponse(frontend_index)
 else:
     @app.get("/")
     async def root():
