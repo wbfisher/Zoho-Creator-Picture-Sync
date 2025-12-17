@@ -137,7 +137,21 @@ class SyncEngine:
             
             try:
                 # Download image
-                image_bytes = await self.zoho.download_image(img_info["download_url"])
+                download_url = img_info["download_url"]
+                logger.debug(f"Downloading image from URL: {download_url}")
+
+                # Skip if URL is empty or invalid
+                if not download_url or not download_url.startswith(("http://", "https://")):
+                    logger.warning(f"Skipping invalid URL for {record_id}/{field_name}: {download_url}")
+                    stats["errors"] += 1
+                    error_log.append({
+                        "record_id": record_id,
+                        "field": field_name,
+                        "error": f"Invalid URL: {download_url}",
+                    })
+                    continue
+
+                image_bytes = await self.zoho.download_image(download_url)
                 filename = img_info["filename"]
                 
                 # Process if needed
@@ -190,18 +204,20 @@ class SyncEngine:
         """Parse Zoho datetime strings."""
         if not value:
             return None
-        
+
         formats = [
-            "%d-%b-%Y %H:%M:%S",
-            "%Y-%m-%dT%H:%M:%S",
-            "%d-%m-%Y %H:%M:%S",
+            "%d-%b-%Y %H:%M:%S",      # 16-Dec-2025 17:08:38
+            "%B %d %Y %H:%M:%S",       # December 16 2025 17:08:38
+            "%Y-%m-%dT%H:%M:%S",       # 2025-12-16T17:08:38
+            "%d-%m-%Y %H:%M:%S",       # 16-12-2025 17:08:38
+            "%Y-%m-%d %H:%M:%S",       # 2025-12-16 17:08:38
         ]
-        
+
         for fmt in formats:
             try:
                 return datetime.strptime(value, fmt)
             except ValueError:
                 continue
-        
+
         logger.warning(f"Could not parse datetime: {value}")
         return None

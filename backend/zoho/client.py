@@ -77,57 +77,76 @@ class ZohoCreatorClient:
             response.raise_for_status()
             return response.content
     
+    def _normalize_url(self, url: str) -> str:
+        """Ensure URL has proper protocol."""
+        if not url:
+            return url
+        url = url.strip()
+        if url.startswith("//"):
+            return f"https:{url}"
+        if not url.startswith(("http://", "https://")):
+            # Assume it's a Zoho URL if it contains zoho
+            if "zoho" in url.lower():
+                return f"https://{url}"
+            # Otherwise it might be a relative path - prefix with Zoho Creator base
+            return f"https://creator.zoho.com{url}" if url.startswith("/") else url
+        return url
+
     def extract_image_fields(self, record: dict) -> list[dict]:
         """Extract image/file upload fields from a record.
-        
+
         Returns list of dicts with: field_name, filename, download_url
-        
+
         Handles multiple Zoho URL formats:
         - Preview engine URLs (previewengine-accl.zoho.com)
         - Direct download URLs
         - Nested objects with filepath
         """
         images = []
-        
+
         # Known image field patterns to check
         image_url_patterns = [
             "previewengine",
             "download",
             "zoho.com/image",
             "zoho.com/file",
+            ".jpg", ".jpeg", ".png", ".gif", ".heic", ".webp",
         ]
-        
+
         for field_name, value in record.items():
             # Skip system fields
             if field_name in ("ID", "Added_Time", "Modified_Time", "Added_User", "Modified_User"):
                 continue
-            
+
             download_url = None
             filename = None
-            
+
             if isinstance(value, str):
                 # Check if it's an image URL
                 if any(pattern in value.lower() for pattern in image_url_patterns):
-                    download_url = value
+                    download_url = self._normalize_url(value)
                     # Try to extract filename from base64 cli-msg if present
                     filename = self._extract_filename_from_url(value, record.get("ID"), field_name)
-            
+
             elif isinstance(value, dict):
                 # Nested object with file info
                 download_url = value.get("download_url") or value.get("filepath") or value.get("url")
                 filename = value.get("filename") or value.get("display_value")
-                
+
                 # Sometimes the URL is in a nested 'file' key
                 if not download_url and "file" in value:
                     download_url = value["file"]
-            
+
+                if download_url:
+                    download_url = self._normalize_url(download_url)
+
             elif isinstance(value, list) and len(value) > 0:
                 # Multiple files in a single field
                 for i, item in enumerate(value):
                     if isinstance(item, str) and any(p in item.lower() for p in image_url_patterns):
                         images.append({
                             "field_name": f"{field_name}_{i}",
-                            "download_url": item,
+                            "download_url": self._normalize_url(item),
                             "filename": f"{record.get('ID', 'unknown')}_{field_name}_{i}"
                         })
                     elif isinstance(item, dict):
@@ -135,18 +154,18 @@ class ZohoCreatorClient:
                         if item_url:
                             images.append({
                                 "field_name": f"{field_name}_{i}",
-                                "download_url": item_url,
+                                "download_url": self._normalize_url(item_url),
                                 "filename": item.get("filename", f"{record.get('ID', 'unknown')}_{field_name}_{i}")
                             })
                 continue  # Already added to images list
-            
+
             if download_url:
                 images.append({
                     "field_name": field_name,
                     "download_url": download_url,
                     "filename": filename or f"{record.get('ID', 'unknown')}_{field_name}"
                 })
-        
+
         return images
     
     def _extract_filename_from_url(self, url: str, record_id: str, field_name: str) -> str:
