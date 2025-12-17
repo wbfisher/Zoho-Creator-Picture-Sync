@@ -108,16 +108,23 @@ async def list_images(
 
     for img in images:
         if img.get("storage_path"):
+            # Try public URL first (works if bucket is public)
             try:
-                signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
-                    img["storage_path"], 3600  # 1 hour expiry
+                public_url = client.storage.from_(settings.supabase_storage_bucket).get_public_url(
+                    img["storage_path"]
                 )
-                # Handle both possible key names from different supabase-py versions
-                img["url"] = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
-            except Exception as e:
-                import logging
-                logging.error(f"Failed to create signed URL for {img.get('storage_path')}: {e}")
-                img["url"] = None
+                img["url"] = public_url
+            except Exception:
+                # Fall back to signed URL if public URL fails
+                try:
+                    signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
+                        img["storage_path"], 3600  # 1 hour expiry
+                    )
+                    img["url"] = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
+                except Exception as e:
+                    import logging
+                    logging.error(f"Failed to create URL for {img.get('storage_path')}: {e}")
+                    img["url"] = None
 
         # Extract categorization fields from zoho_metadata for frontend
         metadata = img.get("zoho_metadata", {})
