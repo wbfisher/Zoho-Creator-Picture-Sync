@@ -85,11 +85,14 @@ class ZohoCreatorClient:
         if url.startswith("//"):
             return f"https:{url}"
         if not url.startswith(("http://", "https://")):
-            # Assume it's a Zoho URL if it contains zoho
+            # Relative path starting with / - prepend Zoho Creator base URL
+            if url.startswith("/"):
+                return f"https://creator.zoho.com{url}"
+            # Domain without protocol
             if "zoho" in url.lower():
                 return f"https://{url}"
-            # Otherwise it might be a relative path - prefix with Zoho Creator base
-            return f"https://creator.zoho.com{url}" if url.startswith("/") else url
+            # Unknown format - return as-is
+            return url
         return url
 
     def extract_image_fields(self, record: dict) -> list[dict]:
