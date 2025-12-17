@@ -112,8 +112,11 @@ async def list_images(
                 signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
                     img["storage_path"], 3600  # 1 hour expiry
                 )
-                img["url"] = signed.get("signedURL")
-            except Exception:
+                # Handle both possible key names from different supabase-py versions
+                img["url"] = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
+            except Exception as e:
+                import logging
+                logging.error(f"Failed to create signed URL for {img.get('storage_path')}: {e}")
                 img["url"] = None
 
         # Extract categorization fields from zoho_metadata for frontend
@@ -227,6 +230,42 @@ async def test_zoho_connection():
             "error_type": type(e).__name__,
             "traceback": traceback.format_exc()
         }
+
+
+@router.get("/debug/images")
+async def debug_images():
+    """Debug endpoint: Check what images API returns."""
+    settings = get_settings()
+    client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
+
+    # Get raw images from database
+    result = client.table("images").select("*").limit(3).execute()
+    images = result.data
+
+    # Try to create signed URLs and capture any issues
+    debug_info = []
+    for img in images:
+        info = {
+            "id": img.get("id"),
+            "storage_path": img.get("storage_path"),
+            "original_filename": img.get("original_filename"),
+        }
+        if img.get("storage_path"):
+            try:
+                signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
+                    img["storage_path"], 3600
+                )
+                info["signed_response"] = signed
+                info["url"] = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
+            except Exception as e:
+                info["error"] = str(e)
+        debug_info.append(info)
+
+    return {
+        "bucket": settings.supabase_storage_bucket,
+        "image_count": len(images),
+        "debug_info": debug_info,
+    }
 
 
 @router.get("/debug/sample-record")
