@@ -1,7 +1,5 @@
 import { useEffect, useCallback, useState } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
-import { RowsPhotoAlbum } from 'react-photo-album'
-import 'react-photo-album/rows.css'
 import { getImages, getFilterValues } from '@/lib/api'
 import { useGalleryStore } from '@/store'
 import { Button } from '@/components/ui/button'
@@ -78,32 +76,24 @@ export default function Gallery() {
   const allImages = data?.pages.flatMap((page) => page.items) ?? []
   const totalImages = data?.pages[0]?.total ?? 0
 
+  // Debug log
+  useEffect(() => {
+    console.log('[Gallery Debug]', {
+      isLoading,
+      isError,
+      error: error?.message,
+      pagesCount: data?.pages?.length,
+      allImagesCount: allImages.length,
+      totalImages,
+      firstImage: allImages[0],
+      filters,
+    })
+  }, [isLoading, isError, error, data, allImages, totalImages, filters])
+
   // Update gallery store for lightbox navigation
   useEffect(() => {
     setGalleryImages(allImages)
   }, [allImages, setGalleryImages])
-
-  // Extended photo type to include our custom data
-  type ExtendedPhoto = {
-    src: string
-    width: number
-    height: number
-    key: string
-    alt: string
-    image: ImageType
-    originalIndex: number
-  }
-
-  // Convert images to photo album format
-  const photos: ExtendedPhoto[] = allImages.map((image, index) => ({
-    src: image.url || '',
-    width: 800,
-    height: 600,
-    key: image.id,
-    alt: image.original_filename,
-    image,
-    originalIndex: index,
-  }))
 
   // Debounced search
   const debouncedSearch = useCallback(
@@ -265,7 +255,19 @@ export default function Gallery() {
         </div>
       </div>
 
-      {/* Gallery Grid */}
+      {/* Debug Panel - Remove after fixing */}
+      <div className="rounded-lg border border-yellow-500 bg-yellow-50 p-3 text-xs font-mono">
+        <strong>Debug:</strong>{' '}
+        isLoading={String(isLoading)} |{' '}
+        isError={String(isError)} |{' '}
+        pages={data?.pages?.length ?? 0} |{' '}
+        images={allImages.length} |{' '}
+        total={totalImages} |{' '}
+        firstImageUrl={allImages[0]?.url ? 'SET' : 'NULL'} |{' '}
+        error={error?.message || 'none'}
+      </div>
+
+      {/* Gallery Grid - Simple CSS Grid */}
       <div className="flex-1 overflow-auto rounded-lg border bg-muted/30 p-4">
         {isLoading ? (
           <div className="flex h-full items-center justify-center">
@@ -289,74 +291,21 @@ export default function Gallery() {
           </div>
         ) : (
           <div className="space-y-4">
-            <RowsPhotoAlbum
-              photos={photos}
-              targetRowHeight={180}
-              rowConstraints={{ minPhotos: 3, maxPhotos: 6 }}
-              spacing={8}
-              render={{
-                photo: (_props, { photo, width, height }) => {
-                  const extPhoto = photo as ExtendedPhoto
-                  const { image, originalIndex } = extPhoto
-                  const isSelected = selectedImages.has(image.id)
-                  const hasError = imageErrors.has(image.id)
-
-                  return (
-                    <div
-                      key={image.id}
-                      className={`group relative overflow-hidden rounded-md bg-background transition-all cursor-pointer ${
-                        isSelected ? 'ring-2 ring-primary ring-offset-2' : ''
-                      }`}
-                      style={{ width, height }}
-                    >
-                      {hasError || !image.url ? (
-                        <div className="flex h-full w-full items-center justify-center bg-muted">
-                          <ImageIcon className="h-8 w-8 text-muted-foreground" />
-                        </div>
-                      ) : (
-                        <img
-                          src={image.url}
-                          alt={image.original_filename}
-                          loading="lazy"
-                          className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                          onClick={() => openLightbox(image, originalIndex)}
-                          onError={() => handleImageError(image.id)}
-                        />
-                      )}
-
-                      {/* Checkbox overlay */}
-                      <div
-                        className={`absolute left-2 top-2 transition-opacity ${
-                          isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                        }`}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={() => toggleSelection(image.id)}
-                          className="h-5 w-5 border-2 border-white bg-black/50 data-[state=checked]:bg-primary"
-                        />
-                      </div>
-
-                      {/* Info overlay */}
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
-                        <p className="truncate text-xs font-medium text-white">
-                          {image.original_filename}
-                        </p>
-                        <div className="flex items-center gap-1 text-xs text-white/70">
-                          <span>{formatBytes(image.file_size_bytes)}</span>
-                          {image.was_processed && (
-                            <Badge variant="secondary" className="h-4 px-1 text-[10px]">
-                              WebP
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                },
-              }}
-            />
+            {/* Simple CSS Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+              {allImages.map((image, index) => (
+                <ImageCard
+                  key={image.id}
+                  image={image}
+                  index={index}
+                  isSelected={selectedImages.has(image.id)}
+                  hasError={imageErrors.has(image.id)}
+                  onSelect={() => toggleSelection(image.id)}
+                  onOpen={() => openLightbox(image, index)}
+                  onError={() => handleImageError(image.id)}
+                />
+              ))}
+            </div>
 
             {/* Load more button */}
             {hasNextPage && (
@@ -383,6 +332,70 @@ export default function Gallery() {
 
       {/* Lightbox */}
       <Lightbox />
+    </div>
+  )
+}
+
+interface ImageCardProps {
+  image: ImageType
+  index: number
+  isSelected: boolean
+  hasError: boolean
+  onSelect: () => void
+  onOpen: () => void
+  onError: () => void
+}
+
+function ImageCard({ image, isSelected, hasError, onSelect, onOpen, onError }: ImageCardProps) {
+  return (
+    <div
+      className={`group relative aspect-square overflow-hidden rounded-lg bg-background shadow-sm transition-all hover:shadow-md ${
+        isSelected ? 'ring-2 ring-primary ring-offset-2' : ''
+      }`}
+    >
+      {hasError || !image.url ? (
+        <div className="flex h-full w-full items-center justify-center bg-muted">
+          <ImageIcon className="h-8 w-8 text-muted-foreground" />
+        </div>
+      ) : (
+        <img
+          src={image.url}
+          alt={image.original_filename}
+          loading="lazy"
+          className="h-full w-full cursor-pointer object-cover transition-transform group-hover:scale-105"
+          onClick={onOpen}
+          onError={onError}
+        />
+      )}
+
+      {/* Checkbox overlay */}
+      <div
+        className={`absolute left-2 top-2 transition-opacity ${
+          isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Checkbox
+          checked={isSelected}
+          onCheckedChange={onSelect}
+          className="h-5 w-5 border-2 border-white bg-black/50 data-[state=checked]:bg-primary"
+        />
+      </div>
+
+      {/* Info overlay */}
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+        <p className="truncate text-xs font-medium text-white">
+          {image.original_filename}
+        </p>
+        <div className="flex items-center gap-1 text-xs text-white/70">
+          <span>{formatBytes(image.file_size_bytes)}</span>
+          {image.was_processed && (
+            <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+              WebP
+            </Badge>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
