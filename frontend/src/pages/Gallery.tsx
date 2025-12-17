@@ -76,20 +76,6 @@ export default function Gallery() {
   const allImages = data?.pages.flatMap((page) => page.items) ?? []
   const totalImages = data?.pages[0]?.total ?? 0
 
-  // Debug log
-  useEffect(() => {
-    console.log('[Gallery Debug]', {
-      isLoading,
-      isError,
-      error: error?.message,
-      pagesCount: data?.pages?.length,
-      allImagesCount: allImages.length,
-      totalImages,
-      firstImage: allImages[0],
-      filters,
-    })
-  }, [isLoading, isError, error, data, allImages, totalImages, filters])
-
   // Update gallery store for lightbox navigation
   useEffect(() => {
     setGalleryImages(allImages)
@@ -166,14 +152,14 @@ export default function Gallery() {
 
         {/* Filters */}
         <Select
-          value={filters.job_captain_timesheet || ''}
-          onValueChange={(val) => setFilter('job_captain_timesheet', val || undefined)}
+          value={filters.job_captain_timesheet || '__all__'}
+          onValueChange={(val) => setFilter('job_captain_timesheet', val === '__all__' ? undefined : val)}
         >
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Job Captain Timesheet" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Timesheets</SelectItem>
+            <SelectItem value="__all__">All Timesheets</SelectItem>
             {filterValues?.job_captain_timesheets.map((jc) => (
               <SelectItem key={jc} value={jc}>{jc}</SelectItem>
             ))}
@@ -181,14 +167,14 @@ export default function Gallery() {
         </Select>
 
         <Select
-          value={filters.project_name || ''}
-          onValueChange={(val) => setFilter('project_name', val || undefined)}
+          value={filters.project_name || '__all__'}
+          onValueChange={(val) => setFilter('project_name', val === '__all__' ? undefined : val)}
         >
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Project" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Projects</SelectItem>
+            <SelectItem value="__all__">All Projects</SelectItem>
             {filterValues?.project_names.map((proj) => (
               <SelectItem key={proj} value={proj}>{proj}</SelectItem>
             ))}
@@ -196,14 +182,14 @@ export default function Gallery() {
         </Select>
 
         <Select
-          value={filters.department || ''}
-          onValueChange={(val) => setFilter('department', val || undefined)}
+          value={filters.department || '__all__'}
+          onValueChange={(val) => setFilter('department', val === '__all__' ? undefined : val)}
         >
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Department" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Departments</SelectItem>
+            <SelectItem value="__all__">All Departments</SelectItem>
             {filterValues?.departments.map((dept) => (
               <SelectItem key={dept} value={dept}>{dept}</SelectItem>
             ))}
@@ -253,18 +239,6 @@ export default function Gallery() {
             </span>
           )}
         </div>
-      </div>
-
-      {/* Debug Panel - Remove after fixing */}
-      <div className="rounded-lg border border-yellow-500 bg-yellow-50 p-3 text-xs font-mono">
-        <strong>Debug:</strong>{' '}
-        isLoading={String(isLoading)} |{' '}
-        isError={String(isError)} |{' '}
-        pages={data?.pages?.length ?? 0} |{' '}
-        images={allImages.length} |{' '}
-        total={totalImages} |{' '}
-        firstImageUrl={allImages[0]?.url ? 'SET' : 'NULL'} |{' '}
-        error={error?.message || 'none'}
       </div>
 
       {/* Gallery Grid - Simple CSS Grid */}
