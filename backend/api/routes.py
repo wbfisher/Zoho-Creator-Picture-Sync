@@ -21,10 +21,18 @@ def get_repos():
 @router.get("/status")
 async def get_status():
     """Get current sync status and stats."""
-    images_repo, runs_repo = get_repos()
-
-    stats = await images_repo.get_stats()
-    recent_runs = await runs_repo.get_recent_runs(limit=5)
+    try:
+        images_repo, runs_repo = get_repos()
+        stats = await images_repo.get_stats()
+        recent_runs = await runs_repo.get_recent_runs(limit=5)
+    except Exception as e:
+        # Return empty stats if database not configured
+        return {
+            "is_running": False,
+            "stats": {"total_images": 0, "processed_images": 0},
+            "recent_runs": [],
+            "error": f"Database not configured: {str(e)}"
+        }
 
     # Check if sync is currently running
     is_running = any(run.get("status") == "running" for run in recent_runs)
@@ -45,7 +53,22 @@ async def trigger_sync(
     """Trigger a sync operation."""
     from ..main import get_sync_engine
 
-    images_repo, runs_repo = get_repos()
+    # Check if sync engine is available (credentials configured)
+    engine = get_sync_engine()
+    if engine is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Zoho credentials not configured. Please configure them in Settings first."
+        )
+
+    try:
+        images_repo, runs_repo = get_repos()
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Database connection failed. Check Supabase configuration: {str(e)}"
+        )
+
     recent_runs = await runs_repo.get_recent_runs(limit=1)
 
     if recent_runs and recent_runs[0].get("status") == "running":
@@ -55,7 +78,6 @@ async def trigger_sync(
     run_id = await runs_repo.start_run()
 
     async def run_sync():
-        engine = get_sync_engine()
         await engine.run_sync(full_sync=full_sync, run_id=run_id, max_records=max_records)
 
     background_tasks.add_task(run_sync)
