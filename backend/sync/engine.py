@@ -59,22 +59,12 @@ class SyncEngine:
         error_log = []
 
         try:
-            # Determine start date for incremental sync
-            modified_since = None
-            if not full_sync:
-                # Check if we have any images - if not, force full sync
-                stats_check = await self.images_repo.get_stats()
-                if stats_check.get("total_images", 0) == 0:
-                    logger.info("No images in database, forcing full sync")
-                    full_sync = True
-                else:
-                    last_run = await self.runs_repo.get_last_successful_run()
-                    if last_run and last_run.get("completed_at"):
-                        modified_since = datetime.fromisoformat(last_run["completed_at"].replace("Z", "+00:00"))
+            # Note: We don't use modified_since criteria because some Zoho reports
+            # don't support it (returns 404). Instead, we always fetch all records
+            # and skip images that already exist in the database (via image_exists check).
+            logger.info(f"Starting sync (full={full_sync}, max_records={max_records})")
 
-            logger.info(f"Starting sync (full={full_sync}, modified_since={modified_since}, max_records={max_records})")
-
-            async for record in self.zoho.fetch_records(self.report_link_name, modified_since):
+            async for record in self.zoho.fetch_records(self.report_link_name):
                 stats["records_processed"] += 1
 
                 # Check if we've reached the max_records limit
