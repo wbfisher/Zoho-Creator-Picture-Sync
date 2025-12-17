@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
+from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
@@ -6,6 +7,14 @@ from db.models import ImageRepository, SyncRunRepository, get_supabase_client
 from config import get_settings
 
 router = APIRouter()
+
+
+class ConfigUpdate(BaseModel):
+    """Configuration update request (read-only for env-based settings)"""
+    sync_cron: Optional[str] = None
+    image_max_size_mb: Optional[int] = None
+    image_max_dimension: Optional[int] = None
+    image_quality: Optional[int] = None
 
 
 def get_repos():
@@ -35,57 +44,100 @@ async def get_status():
 @router.post("/sync")
 async def trigger_sync(
     background_tasks: BackgroundTasks,
-    full_sync: bool = Query(False, description="Run full sync instead of incremental")
+    full_sync: bool = Query(False, description="Run full sync instead of incremental"),
+    max_records: Optional[int] = Query(None, description="Limit number of records to process")
 ):
     """Trigger a sync operation."""
     from main import get_sync_engine
-    
+
     images_repo, runs_repo = get_repos()
     recent_runs = await runs_repo.get_recent_runs(limit=1)
-    
+
     if recent_runs and recent_runs[0].get("status") == "running":
         raise HTTPException(status_code=409, detail="Sync already in progress")
-    
+
+    # Create run_id before starting background task
+    run_id = await runs_repo.start_run()
+
     async def run_sync():
         engine = get_sync_engine()
-        await engine.run_sync(full_sync=full_sync)
-    
+        await engine.run_sync(full_sync=full_sync, max_records=max_records, run_id=run_id)
+
     background_tasks.add_task(run_sync)
-    
-    return {"message": "Sync started", "full_sync": full_sync}
+
+    response = {"message": "Sync started", "run_id": run_id, "full_sync": full_sync}
+    if max_records:
+        response["max_records"] = max_records
+    return response
 
 
 @router.get("/images")
 async def list_images(
     tags: Optional[str] = Query(None, description="Comma-separated tags to filter by"),
     category: Optional[str] = None,
+    job_captain_timesheet: Optional[str] = Query(None, description="Filter by job captain timesheet"),
+    project_name: Optional[str] = Query(None, description="Filter by project name"),
+    department: Optional[str] = Query(None, description="Filter by department"),
+    search: Optional[str] = Query(None, description="Search in filename and description"),
+    date_from: Optional[str] = Query(None, description="Filter by synced date from (ISO format)"),
+    date_to: Optional[str] = Query(None, description="Filter by synced date to (ISO format)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
     """List synced images with optional filtering."""
     images_repo, _ = get_repos()
-    
+
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
-    
+
     images = await images_repo.get_images(
         tags=tag_list,
         category=category,
+        job_captain_timesheet=job_captain_timesheet,
+        project_name=project_name,
+        department=department,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
         limit=limit,
         offset=offset,
     )
-    
+
     # Add signed URLs for image access
     settings = get_settings()
     client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
-    
+
     for img in images:
         if img.get("storage_path"):
-            signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
-                img["storage_path"], 3600  # 1 hour expiry
-            )
-            img["url"] = signed.get("signedURL")
-    
-    return {"images": images, "count": len(images)}
+            try:
+                signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
+                    img["storage_path"], 3600  # 1 hour expiry
+                )
+                img["url"] = signed.get("signedURL")
+            except Exception:
+                img["url"] = None
+
+        # Extract categorization fields from zoho_metadata for frontend
+        metadata = img.get("zoho_metadata", {})
+        if not img.get("job_captain_timesheet"):
+            img["job_captain_timesheet"] = metadata.get("Add_Job_Captain_Time_Sheet_Number")
+        if not img.get("project_name"):
+            img["project_name"] = metadata.get("Project")
+        if not img.get("department"):
+            img["department"] = metadata.get("Project_Department")
+
+    # Get total count for pagination
+    total_count = await images_repo.get_count(
+        tags=tag_list,
+        category=category,
+        job_captain_timesheet=job_captain_timesheet,
+        project_name=project_name,
+        department=department,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+    return {"images": images, "count": total_count}
 
 
 @router.get("/runs")
@@ -100,3 +152,105 @@ async def list_runs(limit: int = Query(20, ge=1, le=100)):
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+
+@router.get("/config")
+async def get_config():
+    """Get current configuration (sensitive values masked)."""
+    settings = get_settings()
+    return {
+        "zoho_client_id": "***" + settings.zoho_client_id[-4:] if settings.zoho_client_id else "",
+        "zoho_client_secret": "***" + settings.zoho_client_secret[-4:] if settings.zoho_client_secret else "",
+        "zoho_refresh_token": "***" + settings.zoho_refresh_token[-4:] if settings.zoho_refresh_token else "",
+        "zoho_account_owner_name": settings.zoho_account_owner_name,
+        "zoho_app_link_name": settings.zoho_app_link_name,
+        "zoho_report_link_name": settings.zoho_report_link_name,
+        "supabase_storage_bucket": settings.supabase_storage_bucket,
+        "sync_cron": settings.sync_cron,
+        "image_max_size_mb": settings.image_max_size_mb,
+        "image_max_dimension": settings.image_max_dimension,
+        "image_quality": settings.image_quality,
+        # Field mappings from defaults (could be made configurable)
+        "field_job_captain_timesheet": "Add_Job_Captain_Time_Sheet_Number",
+        "field_project_name": "Project",
+        "field_department": "Project_Department",
+        "field_tags": "Tags",
+        "field_description": "Description",
+    }
+
+
+@router.put("/config")
+async def update_config(config: ConfigUpdate):
+    """Update configuration. Note: Environment-based settings require restart."""
+    # Since settings come from environment variables, we can't update them at runtime
+    # Return current config with a note
+    return {
+        "message": "Configuration is environment-based. Changes require app restart.",
+        "note": "Update environment variables and restart to apply changes.",
+    }
+
+
+@router.post("/config/test-zoho")
+async def test_zoho_connection():
+    """Test connection to Zoho Creator API."""
+    try:
+        from main import get_sync_engine
+        engine = get_sync_engine()
+
+        # Try to fetch a small number of records to test the connection
+        record_count = 0
+        async for record in engine.zoho.fetch_records(engine.report_link_name, limit=1):
+            record_count += 1
+            break
+
+        return {
+            "success": True,
+            "message": "Successfully connected to Zoho Creator",
+            "records_count": record_count if record_count > 0 else None
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Connection failed: {str(e)}"
+        }
+
+
+@router.get("/images/filters")
+async def get_filter_values():
+    """Get distinct values for filter dropdowns."""
+    settings = get_settings()
+    client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
+
+    # Query distinct values from zoho_metadata
+    # This is a simplified approach - in production you might want to cache these
+    try:
+        result = client.table("images").select("zoho_metadata").execute()
+
+        job_captain_timesheets = set()
+        project_names = set()
+        departments = set()
+
+        for row in result.data:
+            metadata = row.get("zoho_metadata", {})
+            if metadata:
+                jct = metadata.get("Add_Job_Captain_Time_Sheet_Number")
+                if jct:
+                    job_captain_timesheets.add(str(jct))
+                proj = metadata.get("Project")
+                if proj:
+                    project_names.add(str(proj))
+                dept = metadata.get("Project_Department")
+                if dept:
+                    departments.add(str(dept))
+
+        return {
+            "job_captain_timesheets": sorted(list(job_captain_timesheets)),
+            "project_names": sorted(list(project_names)),
+            "departments": sorted(list(departments)),
+        }
+    except Exception as e:
+        return {
+            "job_captain_timesheets": [],
+            "project_names": [],
+            "departments": [],
+        }

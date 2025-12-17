@@ -109,18 +109,81 @@ class ImageRepository:
         self,
         tags: list[str] = None,
         category: str = None,
+        job_captain_timesheet: str = None,
+        project_name: str = None,
+        department: str = None,
+        search: str = None,
+        date_from: str = None,
+        date_to: str = None,
         limit: int = 100,
         offset: int = 0
     ) -> list[dict]:
         query = self.client.table("images").select("*")
-        
+
         if tags:
             query = query.contains("tags", tags)
         if category:
             query = query.eq("category", category)
-        
+
+        # Filter by zoho_metadata fields using JSON containment
+        if job_captain_timesheet:
+            query = query.contains("zoho_metadata", {"Add_Job_Captain_Time_Sheet_Number": job_captain_timesheet})
+        if project_name:
+            query = query.contains("zoho_metadata", {"Project": project_name})
+        if department:
+            query = query.contains("zoho_metadata", {"Project_Department": department})
+
+        # Search in filename and description
+        if search:
+            query = query.or_(f"original_filename.ilike.%{search}%,description.ilike.%{search}%")
+
+        # Date filters
+        if date_from:
+            query = query.gte("synced_at", date_from)
+        if date_to:
+            query = query.lte("synced_at", date_to)
+
         result = query.order("synced_at", desc=True).range(offset, offset + limit - 1).execute()
         return result.data
+
+    async def get_count(
+        self,
+        tags: list[str] = None,
+        category: str = None,
+        job_captain_timesheet: str = None,
+        project_name: str = None,
+        department: str = None,
+        search: str = None,
+        date_from: str = None,
+        date_to: str = None,
+    ) -> int:
+        query = self.client.table("images").select("id", count="exact")
+
+        if tags:
+            query = query.contains("tags", tags)
+        if category:
+            query = query.eq("category", category)
+
+        # Filter by zoho_metadata fields using JSON containment
+        if job_captain_timesheet:
+            query = query.contains("zoho_metadata", {"Add_Job_Captain_Time_Sheet_Number": job_captain_timesheet})
+        if project_name:
+            query = query.contains("zoho_metadata", {"Project": project_name})
+        if department:
+            query = query.contains("zoho_metadata", {"Project_Department": department})
+
+        # Search in filename and description
+        if search:
+            query = query.or_(f"original_filename.ilike.%{search}%,description.ilike.%{search}%")
+
+        # Date filters
+        if date_from:
+            query = query.gte("synced_at", date_from)
+        if date_to:
+            query = query.lte("synced_at", date_to)
+
+        result = query.execute()
+        return result.count or 0
     
     async def get_stats(self) -> dict:
         total = self.client.table("images").select("id", count="exact").execute()

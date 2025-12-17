@@ -24,36 +24,48 @@ class ZohoCreatorClient:
         self,
         report_link_name: str,
         modified_since: Optional[datetime] = None,
-        page_size: int = 200
+        page_size: int = 200,
+        limit: Optional[int] = None
     ) -> AsyncGenerator[dict, None]:
-        """Fetch all records from a report, paginated."""
+        """Fetch records from a report, paginated.
+
+        Args:
+            report_link_name: Name of the Zoho report to fetch from
+            modified_since: Optional datetime to filter records modified after this time
+            page_size: Number of records per API call
+            limit: Optional total limit of records to return
+        """
         url = f"{self.BASE_URL}/{self.account_owner}/{self.app_link_name}/report/{report_link_name}"
-        
+
         from_index = 0
+        total_yielded = 0
         while True:
             params = {
                 "from": from_index,
                 "limit": page_size,
             }
-            
+
             # Add criteria for modified records if provided
             if modified_since:
                 criteria = f"Modified_Time >= '{modified_since.strftime('%d-%b-%Y %H:%M:%S')}'"
                 params["criteria"] = criteria
-            
+
             async with httpx.AsyncClient(timeout=60) as client:
                 headers = await self._get_headers()
                 response = await client.get(url, headers=headers, params=params)
                 response.raise_for_status()
                 data = response.json()
-            
+
             records = data.get("data", [])
             if not records:
                 break
-            
+
             for record in records:
                 yield record
-            
+                total_yielded += 1
+                if limit and total_yielded >= limit:
+                    return
+
             from_index += page_size
             logger.info(f"Fetched {from_index} records so far")
     

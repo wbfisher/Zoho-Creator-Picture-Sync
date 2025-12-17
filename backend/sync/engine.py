@@ -39,14 +39,17 @@ class SyncEngine:
         self.images_repo = ImageRepository(supabase_client)
         self.runs_repo = SyncRunRepository(supabase_client)
     
-    async def run_sync(self, full_sync: bool = False) -> dict:
+    async def run_sync(self, full_sync: bool = False, max_records: int = None, run_id: str = None) -> dict:
         """Run a sync operation.
-        
+
         Args:
             full_sync: If True, sync all records. If False, only sync since last run.
+            max_records: If set, limit the number of records to process.
+            run_id: If provided, use existing run_id instead of creating a new one.
         """
-        run_id = await self.runs_repo.start_run()
-        
+        if run_id is None:
+            run_id = await self.runs_repo.start_run()
+
         stats = {
             "records_processed": 0,
             "images_synced": 0,
@@ -54,7 +57,7 @@ class SyncEngine:
             "errors": 0,
         }
         error_log = []
-        
+
         try:
             # Determine start date for incremental sync
             modified_since = None
@@ -62,12 +65,17 @@ class SyncEngine:
                 last_run = await self.runs_repo.get_last_successful_run()
                 if last_run and last_run.get("completed_at"):
                     modified_since = datetime.fromisoformat(last_run["completed_at"].replace("Z", "+00:00"))
-            
-            logger.info(f"Starting sync (full={full_sync}, modified_since={modified_since})")
-            
+
+            logger.info(f"Starting sync (full={full_sync}, modified_since={modified_since}, max_records={max_records})")
+
             async for record in self.zoho.fetch_records(self.report_link_name, modified_since):
                 stats["records_processed"] += 1
-                
+
+                # Check if we've reached the max_records limit
+                if max_records and stats["records_processed"] > max_records:
+                    logger.info(f"Reached max_records limit ({max_records}), stopping sync")
+                    break
+
                 try:
                     await self._process_record(record, stats, error_log)
                 except Exception as e:
@@ -78,20 +86,20 @@ class SyncEngine:
                         "timestamp": datetime.utcnow().isoformat()
                     })
                     logger.error(f"Error processing record {record.get('ID')}: {e}")
-                
+
                 # Update progress periodically
                 if stats["records_processed"] % 50 == 0:
                     await self.runs_repo.update_run(run_id, **stats)
-            
+
             status = "completed" if stats["errors"] == 0 else "completed_with_errors"
             await self.runs_repo.complete_run(run_id, status, error_log if error_log else None)
-            
+
         except Exception as e:
             logger.exception(f"Sync failed: {e}")
             error_log.append({"fatal_error": str(e), "timestamp": datetime.utcnow().isoformat()})
             await self.runs_repo.complete_run(run_id, "failed", error_log)
             raise
-        
+
         logger.info(f"Sync completed: {stats}")
         return stats
     
