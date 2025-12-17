@@ -228,6 +228,8 @@ async def test_zoho_connection():
 @router.get("/debug/images")
 async def debug_images():
     """Debug endpoint: Check what images API returns."""
+    import httpx
+
     settings = get_settings()
     client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
 
@@ -242,40 +244,46 @@ async def debug_images():
     except Exception as e:
         bucket_contents = f"Error listing bucket: {e}"
 
-    # Try to create signed URLs and capture any issues
+    # Build URLs the same way the /api/images endpoint does
     debug_info = []
     for img in images:
+        storage_path = img.get("storage_path")
+
+        # Build URL exactly like /api/images does
+        public_url = None
+        if storage_path:
+            public_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_storage_bucket}/{storage_path}"
+
         info = {
             "id": img.get("id"),
-            "storage_path": img.get("storage_path"),
+            "storage_path": storage_path,
             "original_filename": img.get("original_filename"),
+            "public_url": public_url,
         }
-        if img.get("storage_path"):
-            try:
-                signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
-                    img["storage_path"], 3600
-                )
-                info["signed_response"] = signed
-                info["url"] = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
-            except Exception as e:
-                info["signed_error"] = str(e)
 
-            # Try to get public URL as fallback
+        # Test if the URL is actually accessible
+        if public_url:
             try:
-                public = client.storage.from_(settings.supabase_storage_bucket).get_public_url(
-                    img["storage_path"]
-                )
-                info["public_url"] = public
+                async with httpx.AsyncClient(timeout=10) as http_client:
+                    response = await http_client.head(public_url)
+                    info["url_status"] = response.status_code
+                    info["url_accessible"] = response.status_code == 200
+                    if response.status_code != 200:
+                        info["url_error"] = f"HTTP {response.status_code}"
             except Exception as e:
-                info["public_error"] = str(e)
+                info["url_status"] = "error"
+                info["url_accessible"] = False
+                info["url_error"] = str(e)
 
         debug_info.append(info)
 
     return {
         "bucket": settings.supabase_storage_bucket,
+        "supabase_url": settings.supabase_url,
         "image_count": len(images),
         "bucket_contents": bucket_contents,
         "debug_info": debug_info,
+        "note": "If url_accessible is False, ensure the storage bucket is set to 'public' in Supabase Dashboard",
     }
 
 
