@@ -114,12 +114,29 @@ async def list_images(
 
         # Extract categorization fields from zoho_metadata for frontend
         metadata = img.get("zoho_metadata", {})
+
+        # Helper to extract display_value from Zoho lookup fields (which are objects)
+        def get_display_value(field_value):
+            if field_value is None:
+                return None
+            if isinstance(field_value, dict):
+                return field_value.get("display_value") or field_value.get("ID")
+            return str(field_value) if field_value else None
+
         if not img.get("job_captain_timesheet"):
-            img["job_captain_timesheet"] = metadata.get("Add_Job_Captain_Time_Sheet_Number")
+            img["job_captain_timesheet"] = get_display_value(metadata.get("Add_Job_Captain_Time_Sheet_Number"))
+        elif isinstance(img.get("job_captain_timesheet"), dict):
+            img["job_captain_timesheet"] = get_display_value(img["job_captain_timesheet"])
+
         if not img.get("project_name"):
-            img["project_name"] = metadata.get("Project")
+            img["project_name"] = get_display_value(metadata.get("Project1")) or get_display_value(metadata.get("Project"))
+        elif isinstance(img.get("project_name"), dict):
+            img["project_name"] = get_display_value(img["project_name"])
+
         if not img.get("department"):
-            img["department"] = metadata.get("Project_Department")
+            img["department"] = get_display_value(metadata.get("Project_Department1")) or get_display_value(metadata.get("Project_Department"))
+        elif isinstance(img.get("department"), dict):
+            img["department"] = get_display_value(img["department"])
 
     # Get total count for pagination
     total_count = await images_repo.get_count(
