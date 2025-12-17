@@ -8,13 +8,13 @@ from apscheduler.triggers.cron import CronTrigger
 import logging
 import os
 
-from .config import get_settings
-from .api.routes import router as api_router
-from .zoho.auth import ZohoAuth
-from .zoho.client import ZohoCreatorClient
-from .sync.engine import SyncEngine
-from .sync.processor import ImageProcessor
-from .db.models import get_supabase_client
+from config import get_settings
+from api.routes import router as api_router
+from zoho.auth import ZohoAuth
+from zoho.client import ZohoCreatorClient
+from sync.engine import SyncEngine
+from sync.processor import ImageProcessor
+from db.models import get_supabase_client
 
 # Configure logging
 logging.basicConfig(

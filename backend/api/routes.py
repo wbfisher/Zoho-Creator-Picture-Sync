@@ -2,8 +2,8 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from typing import Optional
 from datetime import datetime
 
-from ..db.models import ImageRepository, SyncRunRepository, get_supabase_client
-from ..config import get_settings
+from db.models import ImageRepository, SyncRunRepository, get_supabase_client
+from config import get_settings
 
 router = APIRouter()
 
@@ -38,7 +38,7 @@ async def trigger_sync(
     full_sync: bool = Query(False, description="Run full sync instead of incremental")
 ):
     """Trigger a sync operation."""
-    from ..main import get_sync_engine
+    from main import get_sync_engine
     
     images_repo, runs_repo = get_repos()
     recent_runs = await runs_repo.get_recent_runs(limit=1)

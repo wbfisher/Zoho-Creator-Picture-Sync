@@ -6,9 +6,9 @@ import mimetypes
 
 from supabase import Client
 
-from ..zoho.client import ZohoCreatorClient
-from ..db.models import ImageRepository, SyncRunRepository
-from .processor import ImageProcessor
+from zoho.client import ZohoCreatorClient
+from db.models import ImageRepository, SyncRunRepository
+from sync.processor import ImageProcessor
 
 logger = logging.getLogger(__name__)
 
