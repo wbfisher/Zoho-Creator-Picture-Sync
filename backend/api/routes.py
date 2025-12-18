@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
-from db.models import ImageRepository, SyncRunRepository, get_supabase_client
+from db.models import ImageRepository, SyncRunRepository, BatchSyncRepository, get_supabase_client
 from config import get_settings
 
 router = APIRouter()
@@ -15,6 +15,15 @@ class ConfigUpdate(BaseModel):
     image_max_size_mb: Optional[int] = None
     image_max_dimension: Optional[int] = None
     image_quality: Optional[int] = None
+
+
+class BatchSyncConfig(BaseModel):
+    """Configuration for batch sync."""
+    batch_size: int = 100
+    delay_between_batches: int = 2
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    dry_run: bool = False
 
 
 def get_repos():
@@ -165,6 +174,210 @@ async def get_run(run_id: str):
     if not result.data:
         raise HTTPException(status_code=404, detail="Run not found")
     return result.data[0]
+
+
+# =============================================================================
+# Batch Sync Endpoints
+# =============================================================================
+
+def get_batch_repo():
+    """Get batch sync repository."""
+    settings = get_settings()
+    client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
+    return BatchSyncRepository(client)
+
+
+def get_batch_engine():
+    """Get batch sync engine."""
+    from main import get_sync_engine
+    from sync.batch_engine import BatchSyncEngine
+
+    # Reuse the same configuration as the regular sync engine
+    sync_engine = get_sync_engine()
+    return BatchSyncEngine(
+        zoho_client=sync_engine.zoho,
+        supabase_client=sync_engine.supabase,
+        storage_bucket=sync_engine.bucket,
+        image_processor=sync_engine.processor,
+        report_link_name=sync_engine.report_link_name,
+        tag_fields=sync_engine.tag_fields,
+        category_field=sync_engine.category_field,
+        description_field=sync_engine.description_field,
+    )
+
+
+@router.post("/sync/batch")
+async def start_batch_sync(
+    background_tasks: BackgroundTasks,
+    config: BatchSyncConfig,
+):
+    """Start a new batch sync session."""
+    batch_repo = get_batch_repo()
+
+    # Check if there's already an active batch sync
+    active = await batch_repo.get_active_batch_sync()
+    if active and active.get("status") in ["pending", "running"]:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Batch sync already in progress (id: {active['id']}, status: {active['status']})"
+        )
+
+    # Parse dates if provided
+    date_from = None
+    date_to = None
+    if config.date_from:
+        try:
+            date_from = datetime.fromisoformat(config.date_from.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date_from format")
+    if config.date_to:
+        try:
+            date_to = datetime.fromisoformat(config.date_to.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date_to format")
+
+    # Create batch sync record
+    batch_state = await batch_repo.create_batch_sync(
+        batch_size=config.batch_size,
+        delay_between_batches=config.delay_between_batches,
+        date_from=date_from,
+        date_to=date_to,
+        dry_run=config.dry_run,
+    )
+
+    batch_id = batch_state["id"]
+
+    # Start batch sync in background
+    async def run_batch():
+        engine = get_batch_engine()
+        await engine.run_batch_sync(batch_id)
+
+    background_tasks.add_task(run_batch)
+
+    return {
+        "message": "Batch sync started",
+        "batch_id": batch_id,
+        "config": {
+            "batch_size": config.batch_size,
+            "delay_between_batches": config.delay_between_batches,
+            "date_from": config.date_from,
+            "date_to": config.date_to,
+            "dry_run": config.dry_run,
+        }
+    }
+
+
+@router.get("/sync/batch")
+async def get_batch_sync_status():
+    """Get current batch sync status."""
+    batch_repo = get_batch_repo()
+
+    # Get active batch sync
+    active = await batch_repo.get_active_batch_sync()
+
+    # Get recent batch syncs
+    recent = await batch_repo.get_recent_batch_syncs(limit=5)
+
+    return {
+        "active": active,
+        "recent": recent,
+    }
+
+
+@router.get("/sync/batch/{batch_id}")
+async def get_batch_sync_details(batch_id: str):
+    """Get details of a specific batch sync."""
+    batch_repo = get_batch_repo()
+    batch_state = await batch_repo.get_batch_sync(batch_id)
+
+    if not batch_state:
+        raise HTTPException(status_code=404, detail="Batch sync not found")
+
+    return batch_state
+
+
+@router.post("/sync/batch/{batch_id}/pause")
+async def pause_batch_sync(batch_id: str):
+    """Pause a running batch sync."""
+    from sync.batch_engine import request_pause
+
+    batch_repo = get_batch_repo()
+    batch_state = await batch_repo.get_batch_sync(batch_id)
+
+    if not batch_state:
+        raise HTTPException(status_code=404, detail="Batch sync not found")
+
+    if batch_state.get("status") != "running":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot pause batch sync with status: {batch_state.get('status')}"
+        )
+
+    request_pause(batch_id)
+    return {"message": "Pause requested", "batch_id": batch_id}
+
+
+@router.post("/sync/batch/{batch_id}/resume")
+async def resume_batch_sync(
+    batch_id: str,
+    background_tasks: BackgroundTasks,
+):
+    """Resume a paused batch sync."""
+    batch_repo = get_batch_repo()
+    batch_state = await batch_repo.get_batch_sync(batch_id)
+
+    if not batch_state:
+        raise HTTPException(status_code=404, detail="Batch sync not found")
+
+    if batch_state.get("status") != "paused":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot resume batch sync with status: {batch_state.get('status')}"
+        )
+
+    # Check if there's another running batch sync
+    active = await batch_repo.get_active_batch_sync()
+    if active and active.get("id") != batch_id and active.get("status") == "running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Another batch sync is already running (id: {active['id']})"
+        )
+
+    # Start batch sync in background (it will resume from current_offset)
+    async def run_batch():
+        engine = get_batch_engine()
+        await engine.run_batch_sync(batch_id)
+
+    background_tasks.add_task(run_batch)
+
+    return {"message": "Batch sync resumed", "batch_id": batch_id}
+
+
+@router.post("/sync/batch/{batch_id}/cancel")
+async def cancel_batch_sync(batch_id: str):
+    """Cancel a running or paused batch sync."""
+    from sync.batch_engine import request_cancel
+
+    batch_repo = get_batch_repo()
+    batch_state = await batch_repo.get_batch_sync(batch_id)
+
+    if not batch_state:
+        raise HTTPException(status_code=404, detail="Batch sync not found")
+
+    status = batch_state.get("status")
+    if status not in ["pending", "running", "paused"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel batch sync with status: {status}"
+        )
+
+    if status == "running":
+        request_cancel(batch_id)
+        return {"message": "Cancel requested", "batch_id": batch_id}
+    else:
+        # If paused or pending, cancel immediately
+        await batch_repo.set_status(batch_id, "cancelled")
+        return {"message": "Batch sync cancelled", "batch_id": batch_id}
 
 
 @router.get("/health")

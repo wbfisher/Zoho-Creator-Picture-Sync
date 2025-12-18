@@ -129,3 +129,33 @@ export async function testZohoConnection(): Promise<{ success: boolean; message:
     return { success: false, message: 'Config endpoint not available' }
   }
 }
+
+// Batch Sync
+import type { BatchSyncConfig, BatchSyncStatus, BatchSyncState } from '@/types'
+
+export async function getBatchSyncStatus(): Promise<BatchSyncStatus> {
+  return fetchApi<BatchSyncStatus>('/sync/batch')
+}
+
+export async function getBatchSyncDetails(batchId: string): Promise<BatchSyncState> {
+  return fetchApi<BatchSyncState>(`/sync/batch/${batchId}`)
+}
+
+export async function startBatchSync(config: BatchSyncConfig): Promise<{ message: string; batch_id: string }> {
+  return fetchApi('/sync/batch', {
+    method: 'POST',
+    body: JSON.stringify(config),
+  })
+}
+
+export async function pauseBatchSync(batchId: string): Promise<{ message: string }> {
+  return fetchApi(`/sync/batch/${batchId}/pause`, { method: 'POST' })
+}
+
+export async function resumeBatchSync(batchId: string): Promise<{ message: string }> {
+  return fetchApi(`/sync/batch/${batchId}/resume`, { method: 'POST' })
+}
+
+export async function cancelBatchSync(batchId: string): Promise<{ message: string }> {
+  return fetchApi(`/sync/batch/${batchId}/cancel`, { method: 'POST' })
+}

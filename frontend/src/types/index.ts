@@ -92,3 +92,39 @@ export interface FilterValues {
   departments: string[]
   photo_origins: string[]
 }
+
+// Batch Sync types
+export interface BatchSyncConfig {
+  batch_size: number
+  delay_between_batches: number
+  date_from?: string
+  date_to?: string
+  dry_run: boolean
+}
+
+export interface BatchSyncState {
+  id: string
+  created_at: string
+  updated_at: string
+  status: 'pending' | 'running' | 'paused' | 'completed' | 'completed_with_errors' | 'cancelled' | 'failed'
+  batch_size: number
+  delay_between_batches: number
+  date_from: string | null
+  date_to: string | null
+  dry_run: boolean
+  current_offset: number
+  total_records_estimated: number | null
+  batches_completed: number
+  records_processed: number
+  images_synced: number
+  images_skipped: number
+  errors: number
+  error_log: Array<{ record_id?: string; field?: string; error: string; timestamp?: string }> | null
+  current_batch_started_at: string | null
+  last_batch_completed_at: string | null
+}
+
+export interface BatchSyncStatus {
+  active: BatchSyncState | null
+  recent: BatchSyncState[]
+}
