@@ -174,14 +174,14 @@ export default function Gallery() {
 
         {/* Filters */}
         <Select
-          value={filters.job_captain_timesheet || ''}
-          onValueChange={(val) => setFilter('job_captain_timesheet', val || undefined)}
+          value={filters.job_captain_timesheet || '__all__'}
+          onValueChange={(val) => setFilter('job_captain_timesheet', val === '__all__' ? undefined : val)}
         >
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Job Captain Timesheet" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Timesheets</SelectItem>
+            <SelectItem value="__all__">All Timesheets</SelectItem>
             {filterValues?.job_captain_timesheets.map((jc) => (
               <SelectItem key={jc} value={jc}>{jc}</SelectItem>
             ))}
@@ -189,14 +189,14 @@ export default function Gallery() {
         </Select>
 
         <Select
-          value={filters.project_name || ''}
-          onValueChange={(val) => setFilter('project_name', val || undefined)}
+          value={filters.project_name || '__all__'}
+          onValueChange={(val) => setFilter('project_name', val === '__all__' ? undefined : val)}
         >
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Project" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Projects</SelectItem>
+            <SelectItem value="__all__">All Projects</SelectItem>
             {filterValues?.project_names.map((proj) => (
               <SelectItem key={proj} value={proj}>{proj}</SelectItem>
             ))}
@@ -204,14 +204,14 @@ export default function Gallery() {
         </Select>
 
         <Select
-          value={filters.department || ''}
-          onValueChange={(val) => setFilter('department', val || undefined)}
+          value={filters.department || '__all__'}
+          onValueChange={(val) => setFilter('department', val === '__all__' ? undefined : val)}
         >
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Department" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Departments</SelectItem>
+            <SelectItem value="__all__">All Departments</SelectItem>
             {filterValues?.departments.map((dept) => (
               <SelectItem key={dept} value={dept}>{dept}</SelectItem>
             ))}
@@ -219,14 +219,14 @@ export default function Gallery() {
         </Select>
 
         <Select
-          value={filters.photo_origin || ''}
-          onValueChange={(val) => setFilter('photo_origin', val || undefined)}
+          value={filters.photo_origin || '__all__'}
+          onValueChange={(val) => setFilter('photo_origin', val === '__all__' ? undefined : val)}
         >
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Photo Origin" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Origins</SelectItem>
+            <SelectItem value="__all__">All Origins</SelectItem>
             {filterValues?.photo_origins?.map((origin) => (
               <SelectItem key={origin} value={origin}>{origin}</SelectItem>
             ))}
