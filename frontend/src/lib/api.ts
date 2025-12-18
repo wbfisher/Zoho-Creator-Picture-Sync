@@ -5,7 +5,10 @@ import type {
   AppConfig,
   FilterOptions,
   FilterValues,
-  PaginatedResponse
+  PaginatedResponse,
+  BatchSyncConfig,
+  BatchSyncStatus,
+  BatchSyncState,
 } from '@/types'
 
 const API_BASE = '/api'
@@ -131,8 +134,6 @@ export async function testZohoConnection(): Promise<{ success: boolean; message:
 }
 
 // Batch Sync
-import type { BatchSyncConfig, BatchSyncStatus, BatchSyncState } from '@/types'
-
 export async function getBatchSyncStatus(): Promise<BatchSyncStatus> {
   return fetchApi<BatchSyncStatus>('/sync/batch')
 }
