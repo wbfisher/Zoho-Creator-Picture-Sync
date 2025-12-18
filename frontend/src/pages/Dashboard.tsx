@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { formatDate, formatRelativeTime } from '@/lib/utils'
+import { BatchSyncPanel } from '@/components/BatchSyncPanel'
 import {
   Image,
   Sparkles,
@@ -155,6 +156,9 @@ export default function Dashboard() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Batch Sync Panel */}
+      <BatchSyncPanel />
 
       {/* Recent Runs */}
       <Card>

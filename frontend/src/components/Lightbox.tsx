@@ -175,6 +175,12 @@ export function Lightbox() {
                 <span className="font-medium">{lightboxImage.department}</span>
               </div>
             )}
+            {lightboxImage.photo_origin && (
+              <div>
+                <span className="text-white/50">Photo Origin:</span>{' '}
+                <span className="font-medium">{lightboxImage.photo_origin}</span>
+              </div>
+            )}
             {lightboxImage.synced_at && (
               <div>
                 <span className="text-white/50">Synced:</span>{' '}

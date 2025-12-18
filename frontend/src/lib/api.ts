@@ -5,7 +5,10 @@ import type {
   AppConfig,
   FilterOptions,
   FilterValues,
-  PaginatedResponse
+  PaginatedResponse,
+  BatchSyncConfig,
+  BatchSyncStatus,
+  BatchSyncState,
 } from '@/types'
 
 const API_BASE = '/api'
@@ -63,6 +66,7 @@ export async function getImages(
   if (filters.job_captain_timesheet) params.append('job_captain_timesheet', filters.job_captain_timesheet)
   if (filters.project_name) params.append('project_name', filters.project_name)
   if (filters.department) params.append('department', filters.department)
+  if (filters.photo_origin) params.append('photo_origin', filters.photo_origin)
   if (filters.search) params.append('search', filters.search)
   if (filters.date_from) params.append('date_from', filters.date_from)
   if (filters.date_to) params.append('date_to', filters.date_to)
@@ -81,7 +85,7 @@ export async function getFilterValues(): Promise<FilterValues> {
     return await fetchApi<FilterValues>('/images/filters')
   } catch {
     // Endpoint may not exist yet
-    return { job_captain_timesheets: [], project_names: [], departments: [] }
+    return { job_captain_timesheets: [], project_names: [], departments: [], photo_origins: [] }
   }
 }
 
@@ -127,4 +131,32 @@ export async function testZohoConnection(): Promise<{ success: boolean; message:
   } catch {
     return { success: false, message: 'Config endpoint not available' }
   }
+}
+
+// Batch Sync
+export async function getBatchSyncStatus(): Promise<BatchSyncStatus> {
+  return fetchApi<BatchSyncStatus>('/sync/batch')
+}
+
+export async function getBatchSyncDetails(batchId: string): Promise<BatchSyncState> {
+  return fetchApi<BatchSyncState>(`/sync/batch/${batchId}`)
+}
+
+export async function startBatchSync(config: BatchSyncConfig): Promise<{ message: string; batch_id: string }> {
+  return fetchApi('/sync/batch', {
+    method: 'POST',
+    body: JSON.stringify(config),
+  })
+}
+
+export async function pauseBatchSync(batchId: string): Promise<{ message: string }> {
+  return fetchApi(`/sync/batch/${batchId}/pause`, { method: 'POST' })
+}
+
+export async function resumeBatchSync(batchId: string): Promise<{ message: string }> {
+  return fetchApi(`/sync/batch/${batchId}/resume`, { method: 'POST' })
+}
+
+export async function cancelBatchSync(batchId: string): Promise<{ message: string }> {
+  return fetchApi(`/sync/batch/${batchId}/cancel`, { method: 'POST' })
 }

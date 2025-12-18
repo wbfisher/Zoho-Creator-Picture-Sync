@@ -30,6 +30,7 @@ const defaultFilters: FilterOptions = {
   job_captain_timesheet: undefined,
   project_name: undefined,
   department: undefined,
+  photo_origin: undefined,
   search: undefined,
   date_from: undefined,
   date_to: undefined,

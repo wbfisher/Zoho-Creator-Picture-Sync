@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
-from db.models import ImageRepository, SyncRunRepository, get_supabase_client
+from db.models import ImageRepository, SyncRunRepository, BatchSyncRepository, get_supabase_client
 from config import get_settings
 
 router = APIRouter()
@@ -15,6 +15,15 @@ class ConfigUpdate(BaseModel):
     image_max_size_mb: Optional[int] = None
     image_max_dimension: Optional[int] = None
     image_quality: Optional[int] = None
+
+
+class BatchSyncConfig(BaseModel):
+    """Configuration for batch sync."""
+    batch_size: int = 100
+    delay_between_batches: int = 2
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    dry_run: bool = False
 
 
 def get_repos():
@@ -78,6 +87,7 @@ async def list_images(
     job_captain_timesheet: Optional[str] = Query(None, description="Filter by job captain timesheet"),
     project_name: Optional[str] = Query(None, description="Filter by project name"),
     department: Optional[str] = Query(None, description="Filter by department"),
+    photo_origin: Optional[str] = Query(None, description="Filter by photo origin"),
     search: Optional[str] = Query(None, description="Search in filename and description"),
     date_from: Optional[str] = Query(None, description="Filter by synced date from (ISO format)"),
     date_to: Optional[str] = Query(None, description="Filter by synced date to (ISO format)"),
@@ -95,6 +105,7 @@ async def list_images(
         job_captain_timesheet=job_captain_timesheet,
         project_name=project_name,
         department=department,
+        photo_origin=photo_origin,
         search=search,
         date_from=date_from,
         date_to=date_to,
@@ -102,24 +113,19 @@ async def list_images(
         offset=offset,
     )
 
-    # Add signed URLs for image access
+    # Add URLs for image access
     settings = get_settings()
-    client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
+
+    # Use public URLs (no API call needed - instant!)
+    # Format: https://<project>.supabase.co/storage/v1/object/public/<bucket>/<path>
+    base_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_storage_bucket}"
 
     for img in images:
         if img.get("storage_path"):
-            try:
-                signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
-                    img["storage_path"], 3600  # 1 hour expiry
-                )
-                # Handle both possible key names from different supabase-py versions
-                img["url"] = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
-            except Exception as e:
-                import logging
-                logging.error(f"Failed to create signed URL for {img.get('storage_path')}: {e}")
-                img["url"] = None
+            img["url"] = f"{base_url}/{img['storage_path']}"
 
-        # Extract categorization fields from zoho_metadata for frontend
+    # Extract categorization fields from zoho_metadata for frontend
+    for img in images:
         metadata = img.get("zoho_metadata", {})
         if not img.get("job_captain_timesheet"):
             img["job_captain_timesheet"] = metadata.get("Add_Job_Captain_Time_Sheet_Number")
@@ -127,6 +133,8 @@ async def list_images(
             img["project_name"] = metadata.get("Project")
         if not img.get("department"):
             img["department"] = metadata.get("Project_Department")
+        if not img.get("photo_origin"):
+            img["photo_origin"] = metadata.get("Photo_Origin")
 
     # Get total count for pagination
     total_count = await images_repo.get_count(
@@ -135,6 +143,7 @@ async def list_images(
         job_captain_timesheet=job_captain_timesheet,
         project_name=project_name,
         department=department,
+        photo_origin=photo_origin,
         search=search,
         date_from=date_from,
         date_to=date_to,
@@ -160,6 +169,219 @@ async def get_run(run_id: str):
     if not result.data:
         raise HTTPException(status_code=404, detail="Run not found")
     return result.data[0]
+
+
+# =============================================================================
+# Batch Sync Endpoints
+# =============================================================================
+
+def get_batch_repo():
+    """Get batch sync repository."""
+    settings = get_settings()
+    client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
+    return BatchSyncRepository(client)
+
+
+def get_batch_engine():
+    """Get batch sync engine."""
+    from main import get_sync_engine
+    from sync.batch_engine import BatchSyncEngine
+
+    # Reuse the same configuration as the regular sync engine
+    sync_engine = get_sync_engine()
+    return BatchSyncEngine(
+        zoho_client=sync_engine.zoho,
+        supabase_client=sync_engine.supabase,
+        storage_bucket=sync_engine.bucket,
+        image_processor=sync_engine.processor,
+        report_link_name=sync_engine.report_link_name,
+        tag_fields=sync_engine.tag_fields,
+        category_field=sync_engine.category_field,
+        description_field=sync_engine.description_field,
+    )
+
+
+@router.post("/sync/batch")
+async def start_batch_sync(
+    background_tasks: BackgroundTasks,
+    config: BatchSyncConfig,
+):
+    """Start a new batch sync session."""
+    batch_repo = get_batch_repo()
+
+    # Check if there's already an active batch sync
+    active = await batch_repo.get_active_batch_sync()
+    if active and active.get("status") in ["pending", "running"]:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Batch sync already in progress (id: {active['id']}, status: {active['status']})"
+        )
+
+    # Parse dates if provided
+    date_from = None
+    date_to = None
+    if config.date_from:
+        try:
+            date_from = datetime.fromisoformat(config.date_from.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date_from format")
+    if config.date_to:
+        try:
+            date_to = datetime.fromisoformat(config.date_to.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date_to format")
+
+    # Create batch sync record
+    batch_state = await batch_repo.create_batch_sync(
+        batch_size=config.batch_size,
+        delay_between_batches=config.delay_between_batches,
+        date_from=date_from,
+        date_to=date_to,
+        dry_run=config.dry_run,
+    )
+
+    batch_id = batch_state["id"]
+
+    # Start batch sync in background
+    async def run_batch():
+        engine = get_batch_engine()
+        await engine.run_batch_sync(batch_id)
+
+    background_tasks.add_task(run_batch)
+
+    return {
+        "message": "Batch sync started",
+        "batch_id": batch_id,
+        "config": {
+            "batch_size": config.batch_size,
+            "delay_between_batches": config.delay_between_batches,
+            "date_from": config.date_from,
+            "date_to": config.date_to,
+            "dry_run": config.dry_run,
+        }
+    }
+
+
+@router.get("/sync/batch")
+async def get_batch_sync_status():
+    """Get current batch sync status."""
+    try:
+        batch_repo = get_batch_repo()
+
+        # Get active batch sync
+        active = await batch_repo.get_active_batch_sync()
+
+        # Get recent batch syncs
+        recent = await batch_repo.get_recent_batch_syncs(limit=5)
+
+        return {
+            "active": active,
+            "recent": recent,
+        }
+    except Exception as e:
+        # Handle case where batch_sync_state table doesn't exist yet
+        import logging
+        logging.warning(f"Batch sync status fetch failed (table may not exist): {e}")
+        return {
+            "active": None,
+            "recent": [],
+        }
+
+
+@router.get("/sync/batch/{batch_id}")
+async def get_batch_sync_details(batch_id: str):
+    """Get details of a specific batch sync."""
+    batch_repo = get_batch_repo()
+    batch_state = await batch_repo.get_batch_sync(batch_id)
+
+    if not batch_state:
+        raise HTTPException(status_code=404, detail="Batch sync not found")
+
+    return batch_state
+
+
+@router.post("/sync/batch/{batch_id}/pause")
+async def pause_batch_sync(batch_id: str):
+    """Pause a running batch sync."""
+    from sync.batch_engine import request_pause
+
+    batch_repo = get_batch_repo()
+    batch_state = await batch_repo.get_batch_sync(batch_id)
+
+    if not batch_state:
+        raise HTTPException(status_code=404, detail="Batch sync not found")
+
+    if batch_state.get("status") != "running":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot pause batch sync with status: {batch_state.get('status')}"
+        )
+
+    request_pause(batch_id)
+    return {"message": "Pause requested", "batch_id": batch_id}
+
+
+@router.post("/sync/batch/{batch_id}/resume")
+async def resume_batch_sync(
+    batch_id: str,
+    background_tasks: BackgroundTasks,
+):
+    """Resume a paused batch sync."""
+    batch_repo = get_batch_repo()
+    batch_state = await batch_repo.get_batch_sync(batch_id)
+
+    if not batch_state:
+        raise HTTPException(status_code=404, detail="Batch sync not found")
+
+    if batch_state.get("status") != "paused":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot resume batch sync with status: {batch_state.get('status')}"
+        )
+
+    # Check if there's another running batch sync
+    active = await batch_repo.get_active_batch_sync()
+    if active and active.get("id") != batch_id and active.get("status") == "running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Another batch sync is already running (id: {active['id']})"
+        )
+
+    # Start batch sync in background (it will resume from current_offset)
+    async def run_batch():
+        engine = get_batch_engine()
+        await engine.run_batch_sync(batch_id)
+
+    background_tasks.add_task(run_batch)
+
+    return {"message": "Batch sync resumed", "batch_id": batch_id}
+
+
+@router.post("/sync/batch/{batch_id}/cancel")
+async def cancel_batch_sync(batch_id: str):
+    """Cancel a running or paused batch sync."""
+    from sync.batch_engine import request_cancel
+
+    batch_repo = get_batch_repo()
+    batch_state = await batch_repo.get_batch_sync(batch_id)
+
+    if not batch_state:
+        raise HTTPException(status_code=404, detail="Batch sync not found")
+
+    status = batch_state.get("status")
+    if status not in ["pending", "running", "paused"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel batch sync with status: {status}"
+        )
+
+    if status == "running":
+        request_cancel(batch_id)
+        return {"message": "Cancel requested", "batch_id": batch_id}
+    else:
+        # If paused or pending, cancel immediately
+        await batch_repo.set_status(batch_id, "cancelled")
+        return {"message": "Batch sync cancelled", "batch_id": batch_id}
 
 
 @router.get("/health")
@@ -242,7 +464,9 @@ async def debug_images():
     result = client.table("images").select("*").limit(3).execute()
     images = result.data
 
-    # Try to create signed URLs and capture any issues
+    # Public URL base
+    base_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_storage_bucket}"
+
     debug_info = []
     for img in images:
         info = {
@@ -251,18 +475,12 @@ async def debug_images():
             "original_filename": img.get("original_filename"),
         }
         if img.get("storage_path"):
-            try:
-                signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
-                    img["storage_path"], 3600
-                )
-                info["signed_response"] = signed
-                info["url"] = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
-            except Exception as e:
-                info["error"] = str(e)
+            info["public_url"] = f"{base_url}/{img['storage_path']}"
         debug_info.append(info)
 
     return {
         "bucket": settings.supabase_storage_bucket,
+        "base_url": base_url,
         "image_count": len(images),
         "debug_info": debug_info,
     }
@@ -295,42 +513,94 @@ async def get_sample_record():
         }
 
 
+# Simple in-memory cache for filter values
+_filter_cache = {
+    "data": None,
+    "timestamp": 0,
+}
+_FILTER_CACHE_TTL = 600  # 10 minutes (filter values rarely change)
+
+
 @router.get("/images/filters")
 async def get_filter_values():
-    """Get distinct values for filter dropdowns."""
+    """Get distinct values for filter dropdowns (cached for 10 minutes)."""
+    import time
+
+    # Return cached data if still valid
+    if _filter_cache["data"] and (time.time() - _filter_cache["timestamp"]) < _FILTER_CACHE_TTL:
+        return _filter_cache["data"]
+
     settings = get_settings()
     client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
 
-    # Query distinct values from zoho_metadata
-    # This is a simplified approach - in production you might want to cache these
     try:
-        result = client.table("images").select("zoho_metadata").execute()
+        # Try to use the optimized RPC function first (if it exists)
+        try:
+            rpc_result = client.rpc("get_image_filter_values").execute()
+            if rpc_result.data:
+                result_data = rpc_result.data
+                _filter_cache["data"] = result_data
+                _filter_cache["timestamp"] = time.time()
+                return result_data
+        except Exception:
+            pass  # RPC function doesn't exist, fall back to manual query
 
+        # Fallback: Query with pagination to handle large datasets
+        # Only fetch necessary data, process in chunks
         job_captain_timesheets = set()
         project_names = set()
         departments = set()
+        photo_origins = set()
 
-        for row in result.data:
-            metadata = row.get("zoho_metadata", {})
-            if metadata:
-                jct = metadata.get("Add_Job_Captain_Time_Sheet_Number")
-                if jct:
-                    job_captain_timesheets.add(str(jct))
-                proj = metadata.get("Project")
-                if proj:
-                    project_names.add(str(proj))
-                dept = metadata.get("Project_Department")
-                if dept:
-                    departments.add(str(dept))
+        offset = 0
+        batch_size = 5000
+        max_batches = 10  # Safety limit: 50k records max
 
-        return {
+        for _ in range(max_batches):
+            result = client.table("images").select("zoho_metadata").range(offset, offset + batch_size - 1).execute()
+
+            if not result.data:
+                break
+
+            for row in result.data:
+                metadata = row.get("zoho_metadata", {})
+                if metadata:
+                    jct = metadata.get("Add_Job_Captain_Time_Sheet_Number")
+                    if jct:
+                        job_captain_timesheets.add(str(jct))
+                    proj = metadata.get("Project")
+                    if proj:
+                        project_names.add(str(proj))
+                    dept = metadata.get("Project_Department")
+                    if dept:
+                        departments.add(str(dept))
+                    origin = metadata.get("Photo_Origin")
+                    if origin:
+                        photo_origins.add(str(origin))
+
+            if len(result.data) < batch_size:
+                break  # No more data
+
+            offset += batch_size
+
+        result_data = {
             "job_captain_timesheets": sorted(list(job_captain_timesheets)),
             "project_names": sorted(list(project_names)),
             "departments": sorted(list(departments)),
+            "photo_origins": sorted(list(photo_origins)),
         }
+
+        # Cache the result
+        _filter_cache["data"] = result_data
+        _filter_cache["timestamp"] = time.time()
+
+        return result_data
     except Exception as e:
+        import logging
+        logging.warning(f"Failed to fetch filter values: {e}")
         return {
             "job_captain_timesheets": [],
             "project_names": [],
             "departments": [],
+            "photo_origins": [],
         }

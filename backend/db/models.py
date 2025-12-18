@@ -54,6 +54,42 @@ CREATE INDEX IF NOT EXISTS idx_images_zoho_record ON images(zoho_record_id);
 CREATE INDEX IF NOT EXISTS idx_images_tags ON images USING GIN(tags);
 CREATE INDEX IF NOT EXISTS idx_images_synced_at ON images(synced_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sync_runs_started ON sync_runs(started_at DESC);
+
+-- Batch sync state table: tracks batch sync sessions with pause/resume
+CREATE TABLE IF NOT EXISTS batch_sync_state (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+
+    -- Status: pending, running, paused, completed, cancelled, failed
+    status TEXT DEFAULT 'pending',
+
+    -- Configuration
+    batch_size INTEGER DEFAULT 100,
+    delay_between_batches INTEGER DEFAULT 2,  -- seconds
+    date_from TIMESTAMP,
+    date_to TIMESTAMP,
+    dry_run BOOLEAN DEFAULT FALSE,
+
+    -- Progress tracking
+    current_offset INTEGER DEFAULT 0,
+    total_records_estimated INTEGER,
+
+    -- Stats
+    batches_completed INTEGER DEFAULT 0,
+    records_processed INTEGER DEFAULT 0,
+    images_synced INTEGER DEFAULT 0,
+    images_skipped INTEGER DEFAULT 0,
+    errors INTEGER DEFAULT 0,
+    error_log JSONB DEFAULT '[]'::jsonb,
+
+    -- Current batch info
+    current_batch_started_at TIMESTAMP,
+    last_batch_completed_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_batch_sync_state_status ON batch_sync_state(status);
+CREATE INDEX IF NOT EXISTS idx_batch_sync_state_created ON batch_sync_state(created_at DESC);
 """
 
 
@@ -112,6 +148,7 @@ class ImageRepository:
         job_captain_timesheet: str = None,
         project_name: str = None,
         department: str = None,
+        photo_origin: str = None,
         search: str = None,
         date_from: str = None,
         date_to: str = None,
@@ -132,6 +169,8 @@ class ImageRepository:
             query = query.contains("zoho_metadata", {"Project": project_name})
         if department:
             query = query.contains("zoho_metadata", {"Project_Department": department})
+        if photo_origin:
+            query = query.contains("zoho_metadata", {"Photo_Origin": photo_origin})
 
         # Search in filename and description
         if search:
@@ -153,6 +192,7 @@ class ImageRepository:
         job_captain_timesheet: str = None,
         project_name: str = None,
         department: str = None,
+        photo_origin: str = None,
         search: str = None,
         date_from: str = None,
         date_to: str = None,
@@ -171,6 +211,8 @@ class ImageRepository:
             query = query.contains("zoho_metadata", {"Project": project_name})
         if department:
             query = query.contains("zoho_metadata", {"Project_Department": department})
+        if photo_origin:
+            query = query.contains("zoho_metadata", {"Photo_Origin": photo_origin})
 
         # Search in filename and description
         if search:
@@ -247,3 +289,120 @@ class SyncRunRepository:
             "status", "completed"
         ).order("completed_at", desc=True).limit(1).execute()
         return result.data[0] if result.data else None
+
+
+class BatchSyncRepository:
+    """Repository for managing batch sync state."""
+
+    def __init__(self, client: Client):
+        self.client = client
+
+    async def create_batch_sync(
+        self,
+        batch_size: int = 100,
+        delay_between_batches: int = 2,
+        date_from: datetime = None,
+        date_to: datetime = None,
+        dry_run: bool = False,
+        total_records_estimated: int = None,
+    ) -> dict:
+        """Create a new batch sync session."""
+        data = {
+            "status": "pending",
+            "batch_size": batch_size,
+            "delay_between_batches": delay_between_batches,
+            "dry_run": dry_run,
+            "current_offset": 0,
+            "batches_completed": 0,
+            "records_processed": 0,
+            "images_synced": 0,
+            "images_skipped": 0,
+            "errors": 0,
+            "error_log": [],
+        }
+        if date_from:
+            data["date_from"] = date_from.isoformat()
+        if date_to:
+            data["date_to"] = date_to.isoformat()
+        if total_records_estimated is not None:
+            data["total_records_estimated"] = total_records_estimated
+
+        result = self.client.table("batch_sync_state").insert(data).execute()
+        return result.data[0]
+
+    async def get_batch_sync(self, batch_id: str) -> Optional[dict]:
+        """Get a batch sync by ID."""
+        result = self.client.table("batch_sync_state").select("*").eq("id", batch_id).execute()
+        return result.data[0] if result.data else None
+
+    async def get_active_batch_sync(self) -> Optional[dict]:
+        """Get the currently active (running or paused) batch sync."""
+        result = self.client.table("batch_sync_state").select("*").in_(
+            "status", ["pending", "running", "paused"]
+        ).order("created_at", desc=True).limit(1).execute()
+        return result.data[0] if result.data else None
+
+    async def get_recent_batch_syncs(self, limit: int = 10) -> list[dict]:
+        """Get recent batch sync sessions."""
+        result = self.client.table("batch_sync_state").select("*").order(
+            "created_at", desc=True
+        ).limit(limit).execute()
+        return result.data
+
+    async def update_batch_sync(
+        self,
+        batch_id: str,
+        status: str = None,
+        current_offset: int = None,
+        batches_completed: int = None,
+        records_processed: int = None,
+        images_synced: int = None,
+        images_skipped: int = None,
+        errors: int = None,
+        error_log: list = None,
+        current_batch_started_at: datetime = None,
+        last_batch_completed_at: datetime = None,
+        total_records_estimated: int = None,
+    ):
+        """Update batch sync state."""
+        data = {"updated_at": datetime.utcnow().isoformat()}
+
+        if status is not None:
+            data["status"] = status
+        if current_offset is not None:
+            data["current_offset"] = current_offset
+        if batches_completed is not None:
+            data["batches_completed"] = batches_completed
+        if records_processed is not None:
+            data["records_processed"] = records_processed
+        if images_synced is not None:
+            data["images_synced"] = images_synced
+        if images_skipped is not None:
+            data["images_skipped"] = images_skipped
+        if errors is not None:
+            data["errors"] = errors
+        if error_log is not None:
+            data["error_log"] = error_log
+        if current_batch_started_at is not None:
+            data["current_batch_started_at"] = current_batch_started_at.isoformat()
+        if last_batch_completed_at is not None:
+            data["last_batch_completed_at"] = last_batch_completed_at.isoformat()
+        if total_records_estimated is not None:
+            data["total_records_estimated"] = total_records_estimated
+
+        self.client.table("batch_sync_state").update(data).eq("id", batch_id).execute()
+
+    async def set_status(self, batch_id: str, status: str):
+        """Set the status of a batch sync."""
+        await self.update_batch_sync(batch_id, status=status)
+
+    async def append_errors(self, batch_id: str, new_errors: list):
+        """Append errors to the error log."""
+        current = await self.get_batch_sync(batch_id)
+        if current:
+            existing_errors = current.get("error_log") or []
+            combined = existing_errors + new_errors
+            # Keep last 1000 errors max
+            if len(combined) > 1000:
+                combined = combined[-1000:]
+            await self.update_batch_sync(batch_id, error_log=combined)
