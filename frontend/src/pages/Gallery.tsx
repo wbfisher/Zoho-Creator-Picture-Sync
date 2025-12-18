@@ -98,8 +98,7 @@ export default function Gallery() {
   const slides = useMemo(() =>
     allImages.map((img) => ({
       src: img.url || '',
-      alt: img.original_filename,
-      title: img.original_filename,
+      alt: img.original_filename || 'Image',
     })),
     [allImages]
   )
