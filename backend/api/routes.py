@@ -270,18 +270,27 @@ async def start_batch_sync(
 @router.get("/sync/batch")
 async def get_batch_sync_status():
     """Get current batch sync status."""
-    batch_repo = get_batch_repo()
+    try:
+        batch_repo = get_batch_repo()
 
-    # Get active batch sync
-    active = await batch_repo.get_active_batch_sync()
+        # Get active batch sync
+        active = await batch_repo.get_active_batch_sync()
 
-    # Get recent batch syncs
-    recent = await batch_repo.get_recent_batch_syncs(limit=5)
+        # Get recent batch syncs
+        recent = await batch_repo.get_recent_batch_syncs(limit=5)
 
-    return {
-        "active": active,
-        "recent": recent,
-    }
+        return {
+            "active": active,
+            "recent": recent,
+        }
+    except Exception as e:
+        # Handle case where batch_sync_state table doesn't exist yet
+        import logging
+        logging.warning(f"Batch sync status fetch failed (table may not exist): {e}")
+        return {
+            "active": None,
+            "recent": [],
+        }
 
 
 @router.get("/sync/batch/{batch_id}")
