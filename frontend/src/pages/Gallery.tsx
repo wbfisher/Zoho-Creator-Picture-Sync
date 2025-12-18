@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef, useMemo } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { getImages, getFilterValues } from '@/lib/api'
@@ -73,8 +73,11 @@ export default function Gallery() {
     initialPageParam: 0,
   })
 
-  // Flatten all pages into single array
-  const allImages = data?.pages.flatMap((page) => page.items) ?? []
+  // Flatten all pages into single array (memoized to prevent infinite re-renders)
+  const allImages = useMemo(
+    () => data?.pages.flatMap((page) => page.items) ?? [],
+    [data?.pages]
+  )
   const totalImages = data?.pages[0]?.total ?? 0
 
   // Update gallery store for lightbox navigation
@@ -92,9 +95,12 @@ export default function Gallery() {
     overscan: 5,
   })
 
+  // Get virtual items for rendering
+  const virtualItems = rowVirtualizer.getVirtualItems()
+
   // Load more when approaching end
   useEffect(() => {
-    const [lastItem] = [...rowVirtualizer.getVirtualItems()].reverse()
+    const lastItem = virtualItems[virtualItems.length - 1]
     if (!lastItem) return
 
     if (
@@ -104,7 +110,7 @@ export default function Gallery() {
     ) {
       fetchNextPage()
     }
-  }, [rowVirtualizer.getVirtualItems(), hasNextPage, isFetchingNextPage, fetchNextPage, rows])
+  }, [virtualItems.length, hasNextPage, isFetchingNextPage, fetchNextPage, rows])
 
   // Debounced search
   const debouncedSearch = useCallback(
@@ -307,7 +313,7 @@ export default function Gallery() {
               position: 'relative',
             }}
           >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            {virtualItems.map((virtualRow) => {
               const startIndex = virtualRow.index * COLUMNS
               const rowImages = allImages.slice(startIndex, startIndex + COLUMNS)
 
