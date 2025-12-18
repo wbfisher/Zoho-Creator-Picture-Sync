@@ -527,12 +527,12 @@ _filter_cache = {
     "data": None,
     "timestamp": 0,
 }
-_FILTER_CACHE_TTL = 300  # 5 minutes
+_FILTER_CACHE_TTL = 600  # 10 minutes (filter values rarely change)
 
 
 @router.get("/images/filters")
 async def get_filter_values():
-    """Get distinct values for filter dropdowns (cached for 5 minutes)."""
+    """Get distinct values for filter dropdowns (cached for 10 minutes)."""
     import time
 
     # Return cached data if still valid
@@ -543,30 +543,54 @@ async def get_filter_values():
     client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
 
     try:
-        # Only fetch the zoho_metadata column to reduce payload
-        # Limit to avoid timeout on very large datasets
-        result = client.table("images").select("zoho_metadata").limit(10000).execute()
+        # Try to use the optimized RPC function first (if it exists)
+        try:
+            rpc_result = client.rpc("get_image_filter_values").execute()
+            if rpc_result.data:
+                result_data = rpc_result.data
+                _filter_cache["data"] = result_data
+                _filter_cache["timestamp"] = time.time()
+                return result_data
+        except Exception:
+            pass  # RPC function doesn't exist, fall back to manual query
 
+        # Fallback: Query with pagination to handle large datasets
+        # Only fetch necessary data, process in chunks
         job_captain_timesheets = set()
         project_names = set()
         departments = set()
         photo_origins = set()
 
-        for row in result.data:
-            metadata = row.get("zoho_metadata", {})
-            if metadata:
-                jct = metadata.get("Add_Job_Captain_Time_Sheet_Number")
-                if jct:
-                    job_captain_timesheets.add(str(jct))
-                proj = metadata.get("Project")
-                if proj:
-                    project_names.add(str(proj))
-                dept = metadata.get("Project_Department")
-                if dept:
-                    departments.add(str(dept))
-                origin = metadata.get("Photo_Origin")
-                if origin:
-                    photo_origins.add(str(origin))
+        offset = 0
+        batch_size = 5000
+        max_batches = 10  # Safety limit: 50k records max
+
+        for _ in range(max_batches):
+            result = client.table("images").select("zoho_metadata").range(offset, offset + batch_size - 1).execute()
+
+            if not result.data:
+                break
+
+            for row in result.data:
+                metadata = row.get("zoho_metadata", {})
+                if metadata:
+                    jct = metadata.get("Add_Job_Captain_Time_Sheet_Number")
+                    if jct:
+                        job_captain_timesheets.add(str(jct))
+                    proj = metadata.get("Project")
+                    if proj:
+                        project_names.add(str(proj))
+                    dept = metadata.get("Project_Department")
+                    if dept:
+                        departments.add(str(dept))
+                    origin = metadata.get("Photo_Origin")
+                    if origin:
+                        photo_origins.add(str(origin))
+
+            if len(result.data) < batch_size:
+                break  # No more data
+
+            offset += batch_size
 
         result_data = {
             "job_captain_timesheets": sorted(list(job_captain_timesheets)),

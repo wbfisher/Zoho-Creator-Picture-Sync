@@ -29,7 +29,7 @@ import {
 } from 'lucide-react'
 import JSZip from 'jszip'
 
-const ITEMS_PER_PAGE = 100
+const ITEMS_PER_PAGE = 50
 const COLUMNS = 6
 const ROW_HEIGHT = 180
 
