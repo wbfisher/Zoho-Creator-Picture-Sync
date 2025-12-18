@@ -1,11 +1,17 @@
-import { useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { RowsPhotoAlbum } from 'react-photo-album'
+import 'react-photo-album/rows.css'
+import Lightbox from 'yet-another-react-lightbox'
+import 'yet-another-react-lightbox/styles.css'
+import Zoom from 'yet-another-react-lightbox/plugins/zoom'
+import Thumbnails from 'yet-another-react-lightbox/plugins/thumbnails'
+import 'yet-another-react-lightbox/plugins/thumbnails.css'
+
 import { getImages, getFilterValues } from '@/lib/api'
 import { useGalleryStore } from '@/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
   SelectContent,
@@ -13,11 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
-import { formatBytes, debounce } from '@/lib/utils'
-import { Lightbox } from '@/components/Lightbox'
-import type { Image } from '@/types'
+import { debounce } from '@/lib/utils'
 import {
   Search,
   X,
@@ -29,13 +32,11 @@ import {
 } from 'lucide-react'
 import JSZip from 'jszip'
 
-const ITEMS_PER_PAGE = 50
-const COLUMNS = 6
-const ROW_HEIGHT = 180
+const ITEMS_PER_PAGE = 100
 
 export default function Gallery() {
   const { toast } = useToast()
-  const parentRef = useRef<HTMLDivElement>(null)
+  const [lightboxIndex, setLightboxIndex] = useState(-1)
 
   const {
     selectedImages,
@@ -45,14 +46,13 @@ export default function Gallery() {
     filters,
     setFilter,
     resetFilters,
-    openLightbox,
-    setGalleryImages,
   } = useGalleryStore()
 
   // Fetch filter options
   const { data: filterValues } = useQuery({
     queryKey: ['filterValues'],
     queryFn: getFilterValues,
+    staleTime: 10 * 60 * 1000, // 10 minutes
   })
 
   // Infinite query for images
@@ -73,44 +73,36 @@ export default function Gallery() {
     initialPageParam: 0,
   })
 
-  // Flatten all pages into single array (memoized to prevent infinite re-renders)
+  // Flatten all pages into single array
   const allImages = useMemo(
     () => data?.pages.flatMap((page) => page.items) ?? [],
     [data?.pages]
   )
   const totalImages = data?.pages[0]?.total ?? 0
 
-  // Update gallery store for lightbox navigation
-  useEffect(() => {
-    setGalleryImages(allImages)
-  }, [allImages, setGalleryImages])
+  // Convert to react-photo-album format
+  const photos = useMemo(() =>
+    allImages.map((img, index) => ({
+      src: img.url || '',
+      width: 800,  // Default aspect ratio
+      height: 600,
+      key: img.id,
+      alt: img.original_filename || `Image ${index}`,
+      // Store original data for selection/download
+      _original: img,
+    })),
+    [allImages]
+  )
 
-  // Calculate rows for virtualization
-  const rows = Math.ceil(allImages.length / COLUMNS)
-
-  const rowVirtualizer = useVirtualizer({
-    count: rows + (hasNextPage ? 1 : 0), // +1 for loading row
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 5,
-  })
-
-  // Get virtual items for rendering
-  const virtualItems = rowVirtualizer.getVirtualItems()
-
-  // Load more when approaching end
-  useEffect(() => {
-    const lastItem = virtualItems[virtualItems.length - 1]
-    if (!lastItem) return
-
-    if (
-      lastItem.index >= rows - 1 &&
-      hasNextPage &&
-      !isFetchingNextPage
-    ) {
-      fetchNextPage()
-    }
-  }, [virtualItems.length, hasNextPage, isFetchingNextPage, fetchNextPage, rows])
+  // Lightbox slides
+  const slides = useMemo(() =>
+    allImages.map((img) => ({
+      src: img.url || '',
+      alt: img.original_filename,
+      title: img.original_filename,
+    })),
+    [allImages]
+  )
 
   // Debounced search
   const debouncedSearch = useCallback(
@@ -128,7 +120,6 @@ export default function Gallery() {
       const zip = new JSZip()
       const imageIds = Array.from(selectedImages)
 
-      // Fetch each selected image
       for (const id of imageIds) {
         const image = allImages.find((img) => img.id === id)
         if (!image?.url) continue
@@ -161,6 +152,14 @@ export default function Gallery() {
       selectAll(allImages.map((img) => img.id))
     }
   }
+
+  // Load more when scrolling near bottom
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
   const activeFiltersCount = Object.values(filters).filter(Boolean).length
 
@@ -282,10 +281,10 @@ export default function Gallery() {
         </div>
       </div>
 
-      {/* Virtualized Grid */}
+      {/* Photo Gallery */}
       <div
-        ref={parentRef}
-        className="flex-1 overflow-auto rounded-lg border bg-muted/30"
+        className="flex-1 overflow-auto rounded-lg border bg-muted/30 p-2"
+        onScroll={handleScroll}
       >
         {isLoading ? (
           <div className="flex h-full items-center justify-center">
@@ -306,121 +305,79 @@ export default function Gallery() {
             )}
           </div>
         ) : (
-          <div
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              width: '100%',
-              position: 'relative',
-            }}
-          >
-            {virtualItems.map((virtualRow) => {
-              const startIndex = virtualRow.index * COLUMNS
-              const rowImages = allImages.slice(startIndex, startIndex + COLUMNS)
-
-              // Loading indicator row
-              if (virtualRow.index >= rows) {
-                return (
-                  <div
-                    key="loading"
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      height: `${virtualRow.size}px`,
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                    className="flex items-center justify-center"
-                  >
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  </div>
-                )
-              }
-
-              return (
-                <div
-                  key={virtualRow.index}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: `${virtualRow.size}px`,
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
-                  className="grid grid-cols-6 gap-2 p-2"
-                >
-                  {rowImages.map((image, colIndex) => (
-                    <ImageCard
-                      key={image.id}
-                      image={image}
-                      index={startIndex + colIndex}
-                      isSelected={selectedImages.has(image.id)}
-                      onSelect={() => toggleSelection(image.id)}
-                      onOpen={() => openLightbox(image, startIndex + colIndex)}
-                    />
-                  ))}
-                </div>
-              )
-            })}
-          </div>
+          <>
+            <RowsPhotoAlbum
+              photos={photos}
+              targetRowHeight={200}
+              rowConstraints={{ minPhotos: 3, maxPhotos: 8 }}
+              spacing={8}
+              onClick={({ index }) => setLightboxIndex(index)}
+              render={{
+                image: (props, context) => {
+                  const originalImage = (context.photo as typeof photos[0])._original
+                  const isSelected = selectedImages.has(originalImage.id)
+                  return (
+                    <div
+                      className={`relative group cursor-pointer ${isSelected ? 'ring-2 ring-primary ring-offset-2' : ''}`}
+                      onClick={(e) => {
+                        if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                          e.stopPropagation()
+                          toggleSelection(originalImage.id)
+                        }
+                      }}
+                    >
+                      <img
+                        {...props}
+                        className="rounded-md transition-transform group-hover:scale-[1.02]"
+                      />
+                      {/* Selection indicator */}
+                      <div
+                        className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-opacity ${
+                          isSelected
+                            ? 'bg-primary border-primary opacity-100'
+                            : 'bg-black/50 border-white opacity-0 group-hover:opacity-100'
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleSelection(originalImage.id)
+                        }}
+                      >
+                        {isSelected && (
+                          <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+                  )
+                }
+              }}
+            />
+            {isFetchingNextPage && (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {!hasNextPage && allImages.length > 0 && (
+              <p className="text-center py-4 text-sm text-muted-foreground">
+                All {totalImages.toLocaleString()} images loaded
+              </p>
+            )}
+          </>
         )}
       </div>
 
       {/* Lightbox */}
-      <Lightbox />
-    </div>
-  )
-}
-
-interface ImageCardProps {
-  image: Image
-  index: number
-  isSelected: boolean
-  onSelect: () => void
-  onOpen: () => void
-}
-
-function ImageCard({ image, isSelected, onSelect, onOpen }: ImageCardProps) {
-  return (
-    <div
-      className={`group relative aspect-square overflow-hidden rounded-md bg-background transition-all ${
-        isSelected ? 'ring-2 ring-primary ring-offset-2' : ''
-      }`}
-    >
-      <img
-        src={image.url}
-        alt={image.original_filename}
-        loading="lazy"
-        className="h-full w-full cursor-pointer object-cover transition-transform group-hover:scale-105"
-        onClick={onOpen}
+      <Lightbox
+        open={lightboxIndex >= 0}
+        close={() => setLightboxIndex(-1)}
+        index={lightboxIndex}
+        slides={slides}
+        plugins={[Zoom, Thumbnails]}
+        carousel={{ finite: false }}
+        zoom={{ maxZoomPixelRatio: 3 }}
+        thumbnails={{ position: 'bottom', width: 100, height: 60 }}
       />
-
-      {/* Checkbox overlay */}
-      <div
-        className={`absolute left-2 top-2 transition-opacity ${
-          isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-        }`}
-      >
-        <Checkbox
-          checked={isSelected}
-          onCheckedChange={onSelect}
-          className="h-5 w-5 border-2 border-white bg-black/50 data-[state=checked]:bg-primary"
-        />
-      </div>
-
-      {/* Info overlay */}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
-        <p className="truncate text-xs font-medium text-white">{image.original_filename}</p>
-        <div className="flex items-center gap-1 text-xs text-white/70">
-          <span>{formatBytes(image.file_size_bytes)}</span>
-          {image.was_processed && (
-            <Badge variant="secondary" className="h-4 px-1 text-[10px]">
-              WebP
-            </Badge>
-          )}
-        </div>
-      </div>
     </div>
   )
 }
