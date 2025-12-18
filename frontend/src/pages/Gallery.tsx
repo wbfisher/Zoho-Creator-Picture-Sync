@@ -5,8 +5,6 @@ import 'react-photo-album/rows.css'
 import Lightbox from 'yet-another-react-lightbox'
 import 'yet-another-react-lightbox/styles.css'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
-import Thumbnails from 'yet-another-react-lightbox/plugins/thumbnails'
-import 'yet-another-react-lightbox/plugins/thumbnails.css'
 
 import { getImages, getFilterValues } from '@/lib/api'
 import { useGalleryStore } from '@/store'
@@ -372,10 +370,8 @@ export default function Gallery() {
         close={() => setLightboxIndex(-1)}
         index={lightboxIndex}
         slides={slides}
-        plugins={[Zoom, Thumbnails]}
-        carousel={{ finite: false }}
+        plugins={[Zoom]}
         zoom={{ maxZoomPixelRatio: 3 }}
-        thumbnails={{ position: 'bottom', width: 100, height: 60 }}
       />
     </div>
   )
