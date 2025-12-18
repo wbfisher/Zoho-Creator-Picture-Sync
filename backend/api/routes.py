@@ -113,43 +113,16 @@ async def list_images(
         offset=offset,
     )
 
-    # Add signed URLs for image access - BATCH generation (much faster)
+    # Add URLs for image access
     settings = get_settings()
-    client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
 
-    # Collect all storage paths that need URLs
-    paths_to_sign = []
-    path_to_index = {}
-    for i, img in enumerate(images):
+    # Use public URLs (no API call needed - instant!)
+    # Format: https://<project>.supabase.co/storage/v1/object/public/<bucket>/<path>
+    base_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_storage_bucket}"
+
+    for img in images:
         if img.get("storage_path"):
-            paths_to_sign.append(img["storage_path"])
-            path_to_index[img["storage_path"]] = i
-
-    # Batch generate signed URLs (single API call instead of 50)
-    if paths_to_sign:
-        try:
-            signed_urls = client.storage.from_(settings.supabase_storage_bucket).create_signed_urls(
-                paths_to_sign, 3600  # 1 hour expiry
-            )
-            # Map URLs back to images
-            for signed in signed_urls:
-                path = signed.get("path")
-                url = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
-                if path and path in path_to_index:
-                    images[path_to_index[path]]["url"] = url
-        except Exception as e:
-            import logging
-            logging.warning(f"Batch signed URL generation failed, falling back to individual: {e}")
-            # Fallback to individual generation if batch fails
-            for img in images:
-                if img.get("storage_path"):
-                    try:
-                        signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
-                            img["storage_path"], 3600
-                        )
-                        img["url"] = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
-                    except Exception:
-                        img["url"] = None
+            img["url"] = f"{base_url}/{img['storage_path']}"
 
     # Extract categorization fields from zoho_metadata for frontend
     for img in images:
@@ -491,7 +464,9 @@ async def debug_images():
     result = client.table("images").select("*").limit(3).execute()
     images = result.data
 
-    # Try to create signed URLs and capture any issues
+    # Public URL base
+    base_url = f"{settings.supabase_url}/storage/v1/object/public/{settings.supabase_storage_bucket}"
+
     debug_info = []
     for img in images:
         info = {
@@ -500,18 +475,12 @@ async def debug_images():
             "original_filename": img.get("original_filename"),
         }
         if img.get("storage_path"):
-            try:
-                signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
-                    img["storage_path"], 3600
-                )
-                info["signed_response"] = signed
-                info["url"] = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
-            except Exception as e:
-                info["error"] = str(e)
+            info["public_url"] = f"{base_url}/{img['storage_path']}"
         debug_info.append(info)
 
     return {
         "bucket": settings.supabase_storage_bucket,
+        "base_url": base_url,
         "image_count": len(images),
         "debug_info": debug_info,
     }
