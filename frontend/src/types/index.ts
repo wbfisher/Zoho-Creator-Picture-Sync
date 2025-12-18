@@ -128,3 +128,17 @@ export interface BatchSyncStatus {
   active: BatchSyncState | null
   recent: BatchSyncState[]
 }
+
+// Authentication types
+export interface User {
+  email: string
+  first_name: string
+  last_name: string
+  display_name: string
+  zoho_uid?: string
+}
+
+export interface AuthState {
+  authenticated: boolean
+  user: User | null
+}

@@ -1,7 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -10,6 +11,7 @@ import os
 
 from config import get_settings
 from api.routes import router as api_router
+from api.auth_routes import router as auth_router, get_current_user
 from zoho.auth import ZohoAuth
 from zoho.client import ZohoCreatorClient
 from sync.engine import SyncEngine
@@ -115,6 +117,61 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+# Authentication Middleware
+class AuthMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to enforce authentication on protected routes.
+
+    - /api/auth/* routes are always accessible (login/callback/check)
+    - /api/health is accessible (for health checks)
+    - All other /api/* routes require authentication
+    - Frontend routes (/, /gallery, etc.) redirect to /login if not authenticated
+    """
+
+    # Routes that don't require authentication
+    PUBLIC_PATHS = {
+        "/api/auth/login",
+        "/api/auth/callback",
+        "/api/auth/check",
+        "/api/auth/logout",
+        "/api/health",
+        "/login",
+    }
+
+    # Prefixes that are always public
+    PUBLIC_PREFIXES = ("/assets/", "/favicon")
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+
+        # Always allow public paths
+        if path in self.PUBLIC_PATHS:
+            return await call_next(request)
+
+        # Always allow static assets
+        for prefix in self.PUBLIC_PREFIXES:
+            if path.startswith(prefix):
+                return await call_next(request)
+
+        # Check authentication
+        user = get_current_user(request)
+
+        if not user:
+            # For API routes, return 401
+            if path.startswith("/api/"):
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Not authenticated"},
+                )
+            # For frontend routes, redirect to login
+            return RedirectResponse(url="/login", status_code=302)
+
+        # User is authenticated, continue
+        return await call_next(request)
+
+
 # CORS for frontend
 app.add_middleware(
     CORSMiddleware,
@@ -124,7 +181,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add auth middleware (after CORS to ensure CORS headers are set)
+app.add_middleware(AuthMiddleware)
+
 # API routes
+app.include_router(auth_router, prefix="/api")
 app.include_router(api_router, prefix="/api")
 
 # Serve frontend static files if they exist

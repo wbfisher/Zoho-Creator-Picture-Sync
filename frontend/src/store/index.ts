@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import type { Image, FilterOptions } from '@/types'
 
+// Re-export auth store
+export { useAuthStore } from './auth'
+
 interface GalleryState {
   // Selection
   selectedImages: Set<string>
