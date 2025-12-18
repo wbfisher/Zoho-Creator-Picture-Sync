@@ -522,16 +522,30 @@ async def get_sample_record():
         }
 
 
+# Simple in-memory cache for filter values
+_filter_cache = {
+    "data": None,
+    "timestamp": 0,
+}
+_FILTER_CACHE_TTL = 300  # 5 minutes
+
+
 @router.get("/images/filters")
 async def get_filter_values():
-    """Get distinct values for filter dropdowns."""
+    """Get distinct values for filter dropdowns (cached for 5 minutes)."""
+    import time
+
+    # Return cached data if still valid
+    if _filter_cache["data"] and (time.time() - _filter_cache["timestamp"]) < _FILTER_CACHE_TTL:
+        return _filter_cache["data"]
+
     settings = get_settings()
     client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
 
-    # Query distinct values from zoho_metadata
-    # This is a simplified approach - in production you might want to cache these
     try:
-        result = client.table("images").select("zoho_metadata").execute()
+        # Only fetch the zoho_metadata column to reduce payload
+        # Limit to avoid timeout on very large datasets
+        result = client.table("images").select("zoho_metadata").limit(10000).execute()
 
         job_captain_timesheets = set()
         project_names = set()
@@ -554,13 +568,21 @@ async def get_filter_values():
                 if origin:
                     photo_origins.add(str(origin))
 
-        return {
+        result_data = {
             "job_captain_timesheets": sorted(list(job_captain_timesheets)),
             "project_names": sorted(list(project_names)),
             "departments": sorted(list(departments)),
             "photo_origins": sorted(list(photo_origins)),
         }
+
+        # Cache the result
+        _filter_cache["data"] = result_data
+        _filter_cache["timestamp"] = time.time()
+
+        return result_data
     except Exception as e:
+        import logging
+        logging.warning(f"Failed to fetch filter values: {e}")
         return {
             "job_captain_timesheets": [],
             "project_names": [],
