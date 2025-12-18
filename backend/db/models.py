@@ -112,6 +112,7 @@ class ImageRepository:
         job_captain_timesheet: str = None,
         project_name: str = None,
         department: str = None,
+        photo_origin: str = None,
         search: str = None,
         date_from: str = None,
         date_to: str = None,
@@ -132,6 +133,8 @@ class ImageRepository:
             query = query.contains("zoho_metadata", {"Project": project_name})
         if department:
             query = query.contains("zoho_metadata", {"Project_Department": department})
+        if photo_origin:
+            query = query.contains("zoho_metadata", {"Photo_Origin": photo_origin})
 
         # Search in filename and description
         if search:
@@ -153,6 +156,7 @@ class ImageRepository:
         job_captain_timesheet: str = None,
         project_name: str = None,
         department: str = None,
+        photo_origin: str = None,
         search: str = None,
         date_from: str = None,
         date_to: str = None,
@@ -171,6 +175,8 @@ class ImageRepository:
             query = query.contains("zoho_metadata", {"Project": project_name})
         if department:
             query = query.contains("zoho_metadata", {"Project_Department": department})
+        if photo_origin:
+            query = query.contains("zoho_metadata", {"Photo_Origin": photo_origin})
 
         # Search in filename and description
         if search:

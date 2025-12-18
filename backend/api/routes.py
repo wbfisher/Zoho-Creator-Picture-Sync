@@ -78,6 +78,7 @@ async def list_images(
     job_captain_timesheet: Optional[str] = Query(None, description="Filter by job captain timesheet"),
     project_name: Optional[str] = Query(None, description="Filter by project name"),
     department: Optional[str] = Query(None, description="Filter by department"),
+    photo_origin: Optional[str] = Query(None, description="Filter by photo origin"),
     search: Optional[str] = Query(None, description="Search in filename and description"),
     date_from: Optional[str] = Query(None, description="Filter by synced date from (ISO format)"),
     date_to: Optional[str] = Query(None, description="Filter by synced date to (ISO format)"),
@@ -95,6 +96,7 @@ async def list_images(
         job_captain_timesheet=job_captain_timesheet,
         project_name=project_name,
         department=department,
+        photo_origin=photo_origin,
         search=search,
         date_from=date_from,
         date_to=date_to,
@@ -127,6 +129,8 @@ async def list_images(
             img["project_name"] = metadata.get("Project")
         if not img.get("department"):
             img["department"] = metadata.get("Project_Department")
+        if not img.get("photo_origin"):
+            img["photo_origin"] = metadata.get("Photo_Origin")
 
     # Get total count for pagination
     total_count = await images_repo.get_count(
@@ -135,6 +139,7 @@ async def list_images(
         job_captain_timesheet=job_captain_timesheet,
         project_name=project_name,
         department=department,
+        photo_origin=photo_origin,
         search=search,
         date_from=date_from,
         date_to=date_to,
@@ -309,6 +314,7 @@ async def get_filter_values():
         job_captain_timesheets = set()
         project_names = set()
         departments = set()
+        photo_origins = set()
 
         for row in result.data:
             metadata = row.get("zoho_metadata", {})
@@ -322,15 +328,20 @@ async def get_filter_values():
                 dept = metadata.get("Project_Department")
                 if dept:
                     departments.add(str(dept))
+                origin = metadata.get("Photo_Origin")
+                if origin:
+                    photo_origins.add(str(origin))
 
         return {
             "job_captain_timesheets": sorted(list(job_captain_timesheets)),
             "project_names": sorted(list(project_names)),
             "departments": sorted(list(departments)),
+            "photo_origins": sorted(list(photo_origins)),
         }
     except Exception as e:
         return {
             "job_captain_timesheets": [],
             "project_names": [],
             "departments": [],
+            "photo_origins": [],
         }

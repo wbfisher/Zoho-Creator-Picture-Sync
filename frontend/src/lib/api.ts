@@ -63,6 +63,7 @@ export async function getImages(
   if (filters.job_captain_timesheet) params.append('job_captain_timesheet', filters.job_captain_timesheet)
   if (filters.project_name) params.append('project_name', filters.project_name)
   if (filters.department) params.append('department', filters.department)
+  if (filters.photo_origin) params.append('photo_origin', filters.photo_origin)
   if (filters.search) params.append('search', filters.search)
   if (filters.date_from) params.append('date_from', filters.date_from)
   if (filters.date_to) params.append('date_to', filters.date_to)
@@ -81,7 +82,7 @@ export async function getFilterValues(): Promise<FilterValues> {
     return await fetchApi<FilterValues>('/images/filters')
   } catch {
     // Endpoint may not exist yet
-    return { job_captain_timesheets: [], project_names: [], departments: [] }
+    return { job_captain_timesheets: [], project_names: [], departments: [], photo_origins: [] }
   }
 }
 

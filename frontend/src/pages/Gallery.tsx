@@ -218,6 +218,21 @@ export default function Gallery() {
           </SelectContent>
         </Select>
 
+        <Select
+          value={filters.photo_origin || ''}
+          onValueChange={(val) => setFilter('photo_origin', val || undefined)}
+        >
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Photo Origin" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">All Origins</SelectItem>
+            {filterValues?.photo_origins?.map((origin) => (
+              <SelectItem key={origin} value={origin}>{origin}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         {activeFiltersCount > 0 && (
           <Button variant="ghost" size="sm" onClick={resetFilters}>
             <X className="mr-1 h-4 w-4" />

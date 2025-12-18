@@ -14,10 +14,11 @@ export interface Image {
   zoho_modified_at: string | null
   synced_at: string
   url?: string
-  // New fields for categorization
+  // Fields for categorization
   job_captain_timesheet: string | null
   project_name: string | null
   department: string | null
+  photo_origin: string | null
 }
 
 export interface SyncRun {
@@ -71,6 +72,7 @@ export interface FilterOptions {
   job_captain_timesheet?: string
   project_name?: string
   department?: string
+  photo_origin?: string
   search?: string
   date_from?: string
   date_to?: string
@@ -88,4 +90,5 @@ export interface FilterValues {
   job_captain_timesheets: string[]
   project_names: string[]
   departments: string[]
+  photo_origins: string[]
 }
