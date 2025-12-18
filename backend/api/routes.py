@@ -113,24 +113,46 @@ async def list_images(
         offset=offset,
     )
 
-    # Add signed URLs for image access
+    # Add signed URLs for image access - BATCH generation (much faster)
     settings = get_settings()
     client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
 
-    for img in images:
+    # Collect all storage paths that need URLs
+    paths_to_sign = []
+    path_to_index = {}
+    for i, img in enumerate(images):
         if img.get("storage_path"):
-            try:
-                signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
-                    img["storage_path"], 3600  # 1 hour expiry
-                )
-                # Handle both possible key names from different supabase-py versions
-                img["url"] = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
-            except Exception as e:
-                import logging
-                logging.error(f"Failed to create signed URL for {img.get('storage_path')}: {e}")
-                img["url"] = None
+            paths_to_sign.append(img["storage_path"])
+            path_to_index[img["storage_path"]] = i
 
-        # Extract categorization fields from zoho_metadata for frontend
+    # Batch generate signed URLs (single API call instead of 50)
+    if paths_to_sign:
+        try:
+            signed_urls = client.storage.from_(settings.supabase_storage_bucket).create_signed_urls(
+                paths_to_sign, 3600  # 1 hour expiry
+            )
+            # Map URLs back to images
+            for signed in signed_urls:
+                path = signed.get("path")
+                url = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
+                if path and path in path_to_index:
+                    images[path_to_index[path]]["url"] = url
+        except Exception as e:
+            import logging
+            logging.warning(f"Batch signed URL generation failed, falling back to individual: {e}")
+            # Fallback to individual generation if batch fails
+            for img in images:
+                if img.get("storage_path"):
+                    try:
+                        signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
+                            img["storage_path"], 3600
+                        )
+                        img["url"] = signed.get("signedUrl") or signed.get("signedURL") or signed.get("signed_url")
+                    except Exception:
+                        img["url"] = None
+
+    # Extract categorization fields from zoho_metadata for frontend
+    for img in images:
         metadata = img.get("zoho_metadata", {})
         if not img.get("job_captain_timesheet"):
             img["job_captain_timesheet"] = metadata.get("Add_Job_Captain_Time_Sheet_Number")
