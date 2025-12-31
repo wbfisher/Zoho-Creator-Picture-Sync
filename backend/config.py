@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     sync_rate_limit: float = 5.0  # Max Zoho API calls per second
 
     # Storage Config
-    use_signed_urls: bool = False  # Use signed URLs (True) or public URLs (False)
+    use_signed_urls: bool = True  # Use signed URLs (True) or public URLs (False)
 
     # App
     app_secret_key: str = "change-me-in-production"

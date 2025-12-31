@@ -5,16 +5,34 @@ from datetime import datetime
 import logging
 import time
 
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-)
-
 from .auth import ZohoAuth
 
 logger = logging.getLogger(__name__)
+
+# Try to import tenacity for retry logic
+try:
+    from tenacity import (
+        retry,
+        stop_after_attempt,
+        wait_exponential,
+        retry_if_exception_type,
+    )
+    TENACITY_AVAILABLE = True
+except ImportError:
+    TENACITY_AVAILABLE = False
+    logger.warning("tenacity not installed - retry logic disabled")
+
+
+def with_retry(func):
+    """Apply retry decorator if tenacity is available."""
+    if TENACITY_AVAILABLE:
+        return retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=2, max=30),
+            retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.RequestError)),
+            reraise=True,
+        )(func)
+    return func
 
 
 class RateLimiter:
@@ -71,16 +89,10 @@ class ZohoCreatorClient:
         token = await self.auth.get_access_token()
         return {"Authorization": f"Zoho-oauthtoken {token}"}
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
-        retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.RequestError)),
-        reraise=True,
-    )
     async def _make_request(
         self, method: str, url: str, **kwargs
     ) -> httpx.Response:
-        """Make a rate-limited, retrying HTTP request."""
+        """Make a rate-limited HTTP request."""
         await self.rate_limiter.wait()
         client = await self._get_client()
         headers = await self._get_headers()
@@ -132,14 +144,8 @@ class ZohoCreatorClient:
             from_index += page_size
             logger.info(f"Fetched {from_index} records so far")
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
-        retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.RequestError)),
-        reraise=True,
-    )
     async def download_image(self, download_url: str) -> bytes:
-        """Download an image from Zoho Creator with retry logic."""
+        """Download an image from Zoho Creator."""
         await self.rate_limiter.wait()
         client = await self._get_client()
         headers = await self._get_headers()
