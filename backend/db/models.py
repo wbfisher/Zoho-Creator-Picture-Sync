@@ -164,13 +164,26 @@ class ImageRepository:
         if category:
             query = query.eq("category", category)
 
-        # Filter by zoho_metadata fields using JSON containment
+        # Filter by zoho_metadata fields
+        # For lookup fields (dict with display_value), we filter on the nested display_value
         if job_captain_timesheet:
-            query = query.contains("zoho_metadata", {"Add_Job_Captain_Time_Sheet_Number": job_captain_timesheet})
+            query = query.filter(
+                "zoho_metadata->Add_Job_Captain_Time_Sheet_Number->>display_value",
+                "eq",
+                job_captain_timesheet
+            )
         if project_name:
-            query = query.contains("zoho_metadata", {"Project1": project_name})
+            query = query.filter(
+                "zoho_metadata->Project1->>display_value",
+                "eq",
+                project_name
+            )
         if department:
-            query = query.contains("zoho_metadata", {"Project_Department1": department})
+            query = query.filter(
+                "zoho_metadata->Project_Department1->>display_value",
+                "eq",
+                department
+            )
         if photo_origin:
             query = query.contains("zoho_metadata", {"Photo_Origin": photo_origin})
 
@@ -212,13 +225,26 @@ class ImageRepository:
         if category:
             query = query.eq("category", category)
 
-        # Filter by zoho_metadata fields using JSON containment
+        # Filter by zoho_metadata fields
+        # For lookup fields (dict with display_value), we filter on the nested display_value
         if job_captain_timesheet:
-            query = query.contains("zoho_metadata", {"Add_Job_Captain_Time_Sheet_Number": job_captain_timesheet})
+            query = query.filter(
+                "zoho_metadata->Add_Job_Captain_Time_Sheet_Number->>display_value",
+                "eq",
+                job_captain_timesheet
+            )
         if project_name:
-            query = query.contains("zoho_metadata", {"Project1": project_name})
+            query = query.filter(
+                "zoho_metadata->Project1->>display_value",
+                "eq",
+                project_name
+            )
         if department:
-            query = query.contains("zoho_metadata", {"Project_Department1": department})
+            query = query.filter(
+                "zoho_metadata->Project_Department1->>display_value",
+                "eq",
+                department
+            )
         if photo_origin:
             query = query.contains("zoho_metadata", {"Photo_Origin": photo_origin})
 

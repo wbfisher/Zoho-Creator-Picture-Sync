@@ -683,13 +683,31 @@ async def get_filter_values():
                 if metadata:
                     jct = metadata.get("Add_Job_Captain_Time_Sheet_Number")
                     if jct:
-                        job_captain_timesheets.add(str(jct))
+                        # Handle Zoho lookup field (dict with display_value) or plain string
+                        if isinstance(jct, dict):
+                            ts_number = jct.get("display_value") or jct.get("Time_Sheet_Number_New") or str(jct.get("ID", ""))
+                            if ts_number:
+                                job_captain_timesheets.add(ts_number)
+                        else:
+                            job_captain_timesheets.add(str(jct))
                     proj = metadata.get("Project1")
                     if proj:
-                        project_names.add(str(proj))
+                        # Handle Zoho lookup field or plain string
+                        if isinstance(proj, dict):
+                            proj_name = proj.get("display_value") or str(proj.get("ID", ""))
+                            if proj_name:
+                                project_names.add(proj_name)
+                        else:
+                            project_names.add(str(proj))
                     dept = metadata.get("Project_Department1")
                     if dept:
-                        departments.add(str(dept))
+                        # Handle Zoho lookup field or plain string
+                        if isinstance(dept, dict):
+                            dept_name = dept.get("display_value") or str(dept.get("ID", ""))
+                            if dept_name:
+                                departments.add(dept_name)
+                        else:
+                            departments.add(str(dept))
                     origin = metadata.get("Photo_Origin")
                     if origin:
                         photo_origins.add(str(origin))

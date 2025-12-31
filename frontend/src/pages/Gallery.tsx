@@ -37,13 +37,6 @@ import JSZip from 'jszip'
 
 const ITEMS_PER_PAGE = 100
 
-// Extract timesheet number (e.g., "TS-ZC-25-54747-AMS") from full string
-function extractTimesheetNumber(fullString: string): string {
-  // Match pattern like TS-XX-XX-XXXXX-XXX
-  const match = fullString.match(/TS-[A-Z]+-\d+-\d+-[A-Z]+/i)
-  return match ? match[0] : fullString
-}
-
 export default function Gallery() {
   const { toast } = useToast()
   const [lightboxIndex, setLightboxIndex] = useState(-1)
@@ -218,7 +211,7 @@ export default function Gallery() {
         <SearchableSelect
           options={filterValues?.job_captain_timesheets.map((jc) => ({
             value: jc,
-            label: extractTimesheetNumber(jc)
+            label: jc
           })) ?? []}
           value={filters.job_captain_timesheet}
           onValueChange={(val) => setFilter('job_captain_timesheet', val)}
