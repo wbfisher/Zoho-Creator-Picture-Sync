@@ -1,31 +1,75 @@
+import asyncio
 import httpx
 from typing import AsyncGenerator, Optional
 from datetime import datetime
 import logging
+import time
 
 from .auth import ZohoAuth
 
 logger = logging.getLogger(__name__)
 
 
+class RateLimiter:
+    """Simple rate limiter for API calls."""
+
+    def __init__(self, calls_per_second: float = 5.0):
+        self.min_interval = 1.0 / calls_per_second
+        self.last_call = 0.0
+        self._lock = asyncio.Lock()
+
+    async def wait(self):
+        """Wait if necessary to respect rate limit."""
+        async with self._lock:
+            now = time.monotonic()
+            wait_time = self.min_interval - (now - self.last_call)
+            if wait_time > 0:
+                await asyncio.sleep(wait_time)
+            self.last_call = time.monotonic()
+
+
 class ZohoCreatorClient:
     BASE_URL = "https://creator.zoho.com/api/v2"
-    
-    def __init__(self, auth: ZohoAuth, account_owner: str, app_link_name: str):
+
+    def __init__(
+        self,
+        auth: ZohoAuth,
+        account_owner: str,
+        app_link_name: str,
+        rate_limit: float = 5.0,
+    ):
         self.auth = auth
         self.account_owner = account_owner
         self.app_link_name = app_link_name
-    
+        self.rate_limiter = RateLimiter(rate_limit)
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create a reusable HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(60.0, read=120.0),
+                limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+                follow_redirects=True,
+            )
+        return self._client
+
+    async def close(self):
+        """Close the HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+
     async def _get_headers(self) -> dict:
         token = await self.auth.get_access_token()
         return {"Authorization": f"Zoho-oauthtoken {token}"}
-    
+
     async def fetch_records(
         self,
         report_link_name: str,
         modified_since: Optional[datetime] = None,
         page_size: int = 200,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
     ) -> AsyncGenerator[dict, None]:
         """Fetch records from a report, paginated.
 
@@ -50,11 +94,22 @@ class ZohoCreatorClient:
                 criteria = f"Modified_Time >= '{modified_since.strftime('%d-%b-%Y %H:%M:%S')}'"
                 params["criteria"] = criteria
 
-            async with httpx.AsyncClient(timeout=60) as client:
-                headers = await self._get_headers()
+            # Rate limit and reuse client
+            await self.rate_limiter.wait()
+            client = await self._get_client()
+            headers = await self._get_headers()
+
+            try:
                 response = await client.get(url, headers=headers, params=params)
                 response.raise_for_status()
                 data = response.json()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429:
+                    # Rate limited - wait longer and retry
+                    logger.warning("Rate limited by Zoho API, waiting 60s...")
+                    await asyncio.sleep(60)
+                    continue
+                raise
 
             records = data.get("data", [])
             if not records:
@@ -68,15 +123,17 @@ class ZohoCreatorClient:
 
             from_index += page_size
             logger.info(f"Fetched {from_index} records so far")
-    
+
     async def download_image(self, download_url: str) -> bytes:
         """Download an image from Zoho Creator."""
-        async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
-            headers = await self._get_headers()
-            response = await client.get(download_url, headers=headers)
-            response.raise_for_status()
-            return response.content
-    
+        await self.rate_limiter.wait()
+        client = await self._get_client()
+        headers = await self._get_headers()
+
+        response = await client.get(download_url, headers=headers)
+        response.raise_for_status()
+        return response.content
+
     def _normalize_url(self, url: str) -> str:
         """Ensure URL has proper protocol."""
         if not url:
@@ -170,27 +227,27 @@ class ZohoCreatorClient:
                 })
 
         return images
-    
+
     def _extract_filename_from_url(self, url: str, record_id: str, field_name: str) -> str:
         """Try to extract original filename from Zoho preview URL."""
         import base64
         import json
         from urllib.parse import parse_qs, urlparse
-        
+
         try:
             parsed = urlparse(url)
             params = parse_qs(parsed.query)
-            
+
             if "cli-msg" in params:
                 cli_msg = params["cli-msg"][0]
                 # Decode base64 JSON
                 decoded = base64.b64decode(cli_msg).decode("utf-8")
                 data = json.loads(decoded)
-                
+
                 if "filepath" in data:
                     # filepath is like "1765935737819997_Image.HEIC"
                     return data["filepath"]
         except Exception:
             pass
-        
+
         return f"{record_id}_{field_name}"

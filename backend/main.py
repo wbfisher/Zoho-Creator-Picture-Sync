@@ -45,6 +45,7 @@ def get_sync_engine() -> SyncEngine:
             auth=auth,
             account_owner=settings.zoho_account_owner_name,
             app_link_name=settings.zoho_app_link_name,
+            rate_limit=settings.sync_rate_limit,
         )
         
         supabase = get_supabase_client(

@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     image_max_size_mb: int = 5
     image_max_dimension: int = 4000
     image_quality: int = 85
+    sync_batch_size: int = 5  # Concurrent downloads during sync
+    sync_rate_limit: float = 5.0  # Max Zoho API calls per second
 
     # App
     app_secret_key: str = "change-me-in-production"
