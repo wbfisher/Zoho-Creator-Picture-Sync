@@ -635,7 +635,7 @@ async def get_db_sample():
     import traceback
     try:
         settings = get_settings()
-        client = get_supabase_client(settings)
+        client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
 
         result = client.table("images").select("id, zoho_metadata").limit(1).execute()
 
@@ -668,7 +668,7 @@ async def test_filter(project_name: str = None):
     import traceback
     try:
         settings = get_settings()
-        client = get_supabase_client(settings)
+        client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
 
         # First, get a sample to see what we're filtering against
         sample = client.table("images").select("id, zoho_metadata").limit(1).execute()
