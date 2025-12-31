@@ -3,11 +3,35 @@ from fastapi.responses import StreamingResponse
 from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel
+import asyncio
 import io
 import zipfile
 
 from ..db.models import ImageRepository, SyncRunRepository, get_supabase_client
 from ..config import get_settings, update_settings
+
+
+def get_public_url(supabase_url: str, bucket: str, storage_path: str) -> str:
+    """Generate a direct public URL for Supabase storage."""
+    # Supabase public URL format: {project-url}/storage/v1/object/public/{bucket}/{path}
+    return f"{supabase_url}/storage/v1/object/public/{bucket}/{storage_path}"
+
+
+async def generate_signed_urls_parallel(images: list, client, bucket: str) -> dict:
+    """Generate signed URLs in parallel for better performance."""
+    async def get_signed_url(storage_path: str) -> tuple[str, str]:
+        try:
+            signed = await asyncio.to_thread(
+                client.storage.from_(bucket).create_signed_url,
+                storage_path, 3600
+            )
+            return (storage_path, signed.get("signedURL"))
+        except Exception:
+            return (storage_path, None)
+
+    paths = [img["storage_path"] for img in images if img.get("storage_path")]
+    results = await asyncio.gather(*[get_signed_url(p) for p in paths])
+    return dict(results)
 
 router = APIRouter()
 
@@ -116,16 +140,25 @@ async def list_images(
         offset=offset,
     )
 
-    # Add signed URLs for image access
+    # Add URLs for image access
     settings = get_settings()
-    client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
 
-    for img in images:
-        if img.get("storage_path"):
-            signed = client.storage.from_(settings.supabase_storage_bucket).create_signed_url(
-                img["storage_path"], 3600  # 1 hour expiry
-            )
-            img["url"] = signed.get("signedURL")
+    if settings.use_signed_urls:
+        # Use signed URLs (slower but more secure) - now parallelized
+        client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
+        url_map = await generate_signed_urls_parallel(images, client, settings.supabase_storage_bucket)
+        for img in images:
+            if img.get("storage_path"):
+                img["url"] = url_map.get(img["storage_path"])
+    else:
+        # Use direct public URLs (much faster)
+        for img in images:
+            if img.get("storage_path"):
+                img["url"] = get_public_url(
+                    settings.supabase_url,
+                    settings.supabase_storage_bucket,
+                    img["storage_path"]
+                )
 
     return {"items": images, "total": total, "limit": limit, "offset": offset}
 
@@ -217,12 +250,17 @@ class ConfigUpdate(BaseModel):
     image_max_size_mb: Optional[int] = None
     image_max_dimension: Optional[int] = None
     image_quality: Optional[int] = None
+    sync_batch_size: Optional[int] = None
+    sync_rate_limit: Optional[float] = None
     supabase_storage_bucket: Optional[str] = None
+    use_signed_urls: Optional[bool] = None
 
 
 @router.put("/config")
 async def update_config_endpoint(config: ConfigUpdate):
     """Update configuration."""
+    from ..main import reset_sync_engine
+
     updates = {k: v for k, v in config.model_dump().items() if v is not None}
 
     # Don't update credentials if they're masked values
@@ -231,6 +269,10 @@ async def update_config_endpoint(config: ConfigUpdate):
             del updates[key]
 
     updated = update_settings(updates)
+
+    # Reset sync engine to pick up new settings
+    reset_sync_engine()
+
     return updated.to_safe_dict()
 
 

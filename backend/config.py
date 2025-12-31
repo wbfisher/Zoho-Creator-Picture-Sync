@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     image_max_size_mb: int = 5
     image_max_dimension: int = 4000
     image_quality: int = 85
+    sync_batch_size: int = 5  # Concurrent downloads during sync
+    sync_rate_limit: float = 5.0  # Max Zoho API calls per second
+
+    # Storage Config
+    use_signed_urls: bool = False  # Use signed URLs (True) or public URLs (False)
 
     # App
     app_secret_key: str = "change-me-in-production"
@@ -57,7 +62,10 @@ class Settings(BaseSettings):
             "image_max_size_mb": self.image_max_size_mb,
             "image_max_dimension": self.image_max_dimension,
             "image_quality": self.image_quality,
+            "sync_batch_size": self.sync_batch_size,
+            "sync_rate_limit": self.sync_rate_limit,
             "supabase_storage_bucket": self.supabase_storage_bucket,
+            "use_signed_urls": self.use_signed_urls,
         }
         with open(self.config_file, "w") as f:
             json.dump(config_data, f, indent=2)
@@ -89,7 +97,10 @@ class Settings(BaseSettings):
             "image_max_size_mb": self.image_max_size_mb,
             "image_max_dimension": self.image_max_dimension,
             "image_quality": self.image_quality,
+            "sync_batch_size": self.sync_batch_size,
+            "sync_rate_limit": self.sync_rate_limit,
             "supabase_storage_bucket": self.supabase_storage_bucket,
+            "use_signed_urls": self.use_signed_urls,
         }
 
 

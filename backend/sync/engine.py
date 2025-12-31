@@ -43,8 +43,10 @@ class SyncEngine:
             "description": settings.field_description,
         }
 
-    async def run_sync(self, full_sync: bool = False, run_id: str = None, max_records: int = None) -> dict:
-        """Run a sync operation.
+    async def run_sync(
+        self, full_sync: bool = False, run_id: str = None, max_records: int = None
+    ) -> dict:
+        """Run a sync operation with concurrent batch processing.
 
         Args:
             full_sync: If True, sync all records. If False, only sync since last run.
@@ -54,6 +56,9 @@ class SyncEngine:
         if run_id is None:
             run_id = await self.runs_repo.start_run()
 
+        settings = get_settings()
+        batch_size = settings.sync_batch_size  # Concurrent downloads
+
         stats = {
             "records_processed": 0,
             "images_synced": 0,
@@ -62,50 +67,106 @@ class SyncEngine:
         }
         error_log = []
 
+        # Semaphore to limit concurrent image downloads
+        semaphore = asyncio.Semaphore(batch_size)
+
         try:
             # Determine start date for incremental sync
             modified_since = None
             if not full_sync and not max_records:
                 last_run = await self.runs_repo.get_last_successful_run()
                 if last_run and last_run.get("completed_at"):
-                    modified_since = datetime.fromisoformat(last_run["completed_at"].replace("Z", "+00:00"))
+                    modified_since = datetime.fromisoformat(
+                        last_run["completed_at"].replace("Z", "+00:00")
+                    )
 
-            logger.info(f"Starting sync (full={full_sync}, modified_since={modified_since}, max_records={max_records})")
+            logger.info(
+                f"Starting sync (full={full_sync}, modified_since={modified_since}, "
+                f"batch_size={batch_size}, max_records={max_records})"
+            )
 
-            async for record in self.zoho.fetch_records(self.report_link_name, modified_since):
+            # Collect records in batches for concurrent processing
+            pending_tasks = []
+
+            async for record in self.zoho.fetch_records(
+                self.report_link_name, modified_since
+            ):
                 stats["records_processed"] += 1
 
-                try:
-                    await self._process_record(record, stats, error_log)
-                except Exception as e:
-                    stats["errors"] += 1
-                    error_log.append({
-                        "record_id": record.get("ID"),
-                        "error": str(e),
-                        "timestamp": datetime.utcnow().isoformat()
-                    })
-                    logger.error(f"Error processing record {record.get('ID')}: {e}")
+                # Create task for this record
+                task = asyncio.create_task(
+                    self._process_record_with_semaphore(
+                        record, stats, error_log, semaphore
+                    )
+                )
+                pending_tasks.append(task)
+
+                # Process in batches to avoid memory issues
+                if len(pending_tasks) >= batch_size * 2:
+                    # Wait for some tasks to complete
+                    done, pending_tasks_set = await asyncio.wait(
+                        pending_tasks, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    pending_tasks = list(pending_tasks_set)
 
                 # Stop if we've hit the max records limit
                 if max_records and stats["records_processed"] >= max_records:
                     logger.info(f"Reached max_records limit ({max_records}), stopping sync")
                     break
 
-                # Update progress periodically
-                if stats["records_processed"] % 50 == 0:
+                # Update progress every 10 records
+                if stats["records_processed"] % 10 == 0:
                     await self.runs_repo.update_run(run_id, **stats)
+                    logger.info(
+                        f"Progress: {stats['records_processed']} records, "
+                        f"{stats['images_synced']} synced, {stats['images_skipped']} skipped, "
+                        f"{stats['errors']} errors"
+                    )
+
+            # Wait for remaining tasks
+            if pending_tasks:
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
 
             status = "completed" if stats["errors"] == 0 else "completed_with_errors"
-            await self.runs_repo.complete_run(run_id, status, error_log if error_log else None)
+            await self.runs_repo.complete_run(
+                run_id, status, error_log if error_log else None
+            )
 
         except Exception as e:
             logger.exception(f"Sync failed: {e}")
-            error_log.append({"fatal_error": str(e), "timestamp": datetime.utcnow().isoformat()})
+            error_log.append(
+                {"fatal_error": str(e), "timestamp": datetime.utcnow().isoformat()}
+            )
             await self.runs_repo.complete_run(run_id, "failed", error_log)
             raise
+        finally:
+            # Clean up the Zoho client
+            await self.zoho.close()
 
         logger.info(f"Sync completed: {stats}")
         return stats
+
+    async def _process_record_with_semaphore(
+        self,
+        record: dict,
+        stats: dict,
+        error_log: list,
+        semaphore: asyncio.Semaphore,
+    ):
+        """Process a record with semaphore to limit concurrency."""
+        async with semaphore:
+            try:
+                await self._process_record(record, stats, error_log)
+            except Exception as e:
+                stats["errors"] += 1
+                error_log.append(
+                    {
+                        "record_id": record.get("ID"),
+                        "error": str(e),
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }
+                )
+                logger.error(f"Error processing record {record.get('ID')}: {e}")
 
     async def _process_record(self, record: dict, stats: dict, error_log: list):
         """Process a single Zoho record and sync its images."""
@@ -119,7 +180,9 @@ class SyncEngine:
         if mappings["job_captain_timesheet"]:
             job_captain_timesheet = record.get(mappings["job_captain_timesheet"])
             if isinstance(job_captain_timesheet, dict):
-                job_captain_timesheet = job_captain_timesheet.get("display_value", str(job_captain_timesheet))
+                job_captain_timesheet = job_captain_timesheet.get(
+                    "display_value", str(job_captain_timesheet)
+                )
 
         project_name = None
         if mappings["project_name"]:
@@ -166,26 +229,26 @@ class SyncEngine:
                 continue
 
             try:
-                # Download image
+                # Download image (with retry logic built into client)
                 image_bytes = await self.zoho.download_image(img_info["download_url"])
                 filename = img_info["filename"]
 
                 # Process if needed
-                processed_bytes, final_filename, was_processed = self.processor.process_if_needed(
-                    image_bytes, filename
+                processed_bytes, final_filename, was_processed = (
+                    self.processor.process_if_needed(image_bytes, filename)
                 )
 
                 # Build storage path: department/YYYY-MM/filename
-                date_folder = zoho_created.strftime("%Y-%m") if zoho_created else "unknown"
+                date_folder = (
+                    zoho_created.strftime("%Y-%m") if zoho_created else "unknown"
+                )
                 cat_folder = category or "uncategorized"
                 storage_path = f"{cat_folder}/{date_folder}/{record_id}_{final_filename}"
 
                 # Upload to Supabase Storage
                 content_type = mimetypes.guess_type(final_filename)[0] or "image/webp"
                 self.supabase.storage.from_(self.bucket).upload(
-                    storage_path,
-                    processed_bytes,
-                    {"content-type": content_type}
+                    storage_path, processed_bytes, {"content-type": content_type}
                 )
 
                 # Save metadata to database
@@ -212,11 +275,13 @@ class SyncEngine:
 
             except Exception as e:
                 stats["errors"] += 1
-                error_log.append({
-                    "record_id": record_id,
-                    "field": field_name,
-                    "error": str(e),
-                })
+                error_log.append(
+                    {
+                        "record_id": record_id,
+                        "field": field_name,
+                        "error": str(e),
+                    }
+                )
                 logger.error(f"Failed to sync image {record_id}/{field_name}: {e}")
 
     def _parse_zoho_datetime(self, value: str) -> Optional[datetime]:

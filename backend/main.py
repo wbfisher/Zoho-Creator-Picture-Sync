@@ -28,6 +28,12 @@ _sync_engine = None
 scheduler = AsyncIOScheduler()
 
 
+def reset_sync_engine():
+    """Reset the sync engine to pick up new settings."""
+    global _sync_engine
+    _sync_engine = None
+
+
 def get_sync_engine() -> SyncEngine:
     global _sync_engine
     if _sync_engine is None:
@@ -48,6 +54,7 @@ def get_sync_engine() -> SyncEngine:
             auth=auth,
             account_owner=settings.zoho_account_owner_name,
             app_link_name=settings.zoho_app_link_name,
+            rate_limit=settings.sync_rate_limit,
         )
 
         supabase = get_supabase_client(
