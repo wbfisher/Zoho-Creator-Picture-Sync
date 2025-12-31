@@ -6,7 +6,10 @@ import Lightbox from 'yet-another-react-lightbox'
 import 'yet-another-react-lightbox/styles.css'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import Thumbnails from 'yet-another-react-lightbox/plugins/thumbnails'
+import Captions from 'yet-another-react-lightbox/plugins/captions'
+import DownloadPlugin from 'yet-another-react-lightbox/plugins/download'
 import 'yet-another-react-lightbox/plugins/thumbnails.css'
+import 'yet-another-react-lightbox/plugins/captions.css'
 
 import { getImages, getFilterValues } from '@/lib/api'
 import { useGalleryStore } from '@/store'
@@ -97,12 +100,17 @@ export default function Gallery() {
     [allImages]
   )
 
-  // Lightbox slides
+  // Lightbox slides with captions
   const slides = useMemo(() =>
     allImages.map((img) => ({
       src: img.url || '',
       alt: img.original_filename,
-      title: img.original_filename,
+      title: img.project_name || img.original_filename,
+      description: [
+        img.department,
+        img.zoho_created_at ? new Date(img.zoho_created_at).toLocaleDateString() : null,
+      ].filter(Boolean).join(' • ') || undefined,
+      download: img.url,
     })),
     [allImages]
   )
@@ -401,6 +409,17 @@ export default function Gallery() {
                           </svg>
                         )}
                       </div>
+                      {/* Metadata overlay on hover */}
+                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity rounded-b-md">
+                        <div className="text-xs text-white truncate">
+                          {originalImage.project_name || 'No Project'}
+                        </div>
+                        <div className="text-xs text-white/70 truncate">
+                          {originalImage.department}
+                          {originalImage.department && originalImage.zoho_created_at && ' • '}
+                          {originalImage.zoho_created_at && new Date(originalImage.zoho_created_at).toLocaleDateString()}
+                        </div>
+                      </div>
                     </div>
                   )
                 }
@@ -426,10 +445,11 @@ export default function Gallery() {
         close={() => setLightboxIndex(-1)}
         index={lightboxIndex}
         slides={slides}
-        plugins={[Zoom, Thumbnails]}
+        plugins={[Zoom, Thumbnails, Captions, DownloadPlugin]}
         carousel={{ finite: false }}
         zoom={{ maxZoomPixelRatio: 3 }}
         thumbnails={{ position: 'bottom', width: 100, height: 60 }}
+        captions={{ showToggle: true, descriptionTextAlign: 'center' }}
       />
     </div>
   )
