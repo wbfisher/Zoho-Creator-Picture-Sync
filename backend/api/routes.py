@@ -632,60 +632,68 @@ async def get_sample_record():
 @router.get("/debug/db-sample")
 async def get_db_sample():
     """Debug endpoint: Get a sample image from database to inspect zoho_metadata structure."""
-    settings = get_settings()
-    client = get_supabase_client(settings)
+    import traceback
+    try:
+        settings = get_settings()
+        client = get_supabase_client(settings)
 
-    result = client.table("images").select("id, zoho_metadata").limit(1).execute()
+        result = client.table("images").select("id, zoho_metadata").limit(1).execute()
 
-    if result.data and len(result.data) > 0:
-        metadata = result.data[0].get("zoho_metadata", {})
-        project1 = metadata.get("Project1")
-        dept = metadata.get("Project_Department1")
-        timesheet = metadata.get("Add_Job_Captain_Time_Sheet_Number")
+        if result.data and len(result.data) > 0:
+            metadata = result.data[0].get("zoho_metadata") or {}
+            project1 = metadata.get("Project1") if metadata else None
+            dept = metadata.get("Project_Department1") if metadata else None
+            timesheet = metadata.get("Add_Job_Captain_Time_Sheet_Number") if metadata else None
 
-        return {
-            "success": True,
-            "image_id": result.data[0]["id"],
-            "Project1_raw": project1,
-            "Project1_type": type(project1).__name__,
-            "Project1_display_value": project1.get("display_value") if isinstance(project1, dict) else None,
-            "Department_raw": dept,
-            "Department_type": type(dept).__name__,
-            "Timesheet_raw": timesheet,
-            "Timesheet_type": type(timesheet).__name__,
-        }
+            return {
+                "success": True,
+                "image_id": result.data[0]["id"],
+                "Project1_raw": project1,
+                "Project1_type": type(project1).__name__ if project1 else "NoneType",
+                "Project1_display_value": project1.get("display_value") if isinstance(project1, dict) else None,
+                "Department_raw": dept,
+                "Department_type": type(dept).__name__ if dept else "NoneType",
+                "Timesheet_raw": timesheet,
+                "Timesheet_type": type(timesheet).__name__ if timesheet else "NoneType",
+            }
 
-    return {"success": False, "message": "No images in database"}
+        return {"success": False, "message": "No images in database"}
+    except Exception as e:
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 @router.get("/debug/test-filter")
 async def test_filter(project_name: str = None):
     """Debug endpoint: Test project filter query."""
-    settings = get_settings()
-    client = get_supabase_client(settings)
+    import traceback
+    try:
+        settings = get_settings()
+        client = get_supabase_client(settings)
 
-    # First, get a sample to see what we're filtering against
-    sample = client.table("images").select("id, zoho_metadata").limit(1).execute()
-    sample_project = None
-    if sample.data:
-        meta = sample.data[0].get("zoho_metadata", {})
-        sample_project = meta.get("Project1")
+        # First, get a sample to see what we're filtering against
+        sample = client.table("images").select("id, zoho_metadata").limit(1).execute()
+        sample_project = None
+        if sample.data:
+            meta = sample.data[0].get("zoho_metadata") or {}
+            sample_project = meta.get("Project1") if meta else None
 
-    # Try the filter
-    query = client.table("images").select("id", count="exact")
-    if project_name:
-        query = query.contains(
-            "zoho_metadata",
-            {"Project1": {"display_value": project_name}}
-        )
-    result = query.limit(5).execute()
+        # Try the filter
+        query = client.table("images").select("id", count="exact")
+        if project_name:
+            query = query.contains(
+                "zoho_metadata",
+                {"Project1": {"display_value": project_name}}
+            )
+        result = query.limit(5).execute()
 
-    return {
-        "filter_value": project_name,
-        "sample_Project1_in_db": sample_project,
-        "matched_count": result.count,
-        "matched_ids": [r["id"] for r in result.data] if result.data else [],
-    }
+        return {
+            "filter_value": project_name,
+            "sample_Project1_in_db": sample_project,
+            "matched_count": result.count,
+            "matched_ids": [r["id"] for r in result.data] if result.data else [],
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 @router.post("/debug/clear-cache")
