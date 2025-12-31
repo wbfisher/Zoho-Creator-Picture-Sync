@@ -6,6 +6,8 @@ import {
   pauseBatchSync,
   resumeBatchSync,
   cancelBatchSync,
+  getQuickBatchStatus,
+  startQuickBatch,
 } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,6 +16,13 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { formatDate, formatRelativeTime } from '@/lib/utils'
 import type { BatchSyncConfig, BatchSyncState } from '@/types'
@@ -29,18 +38,30 @@ import {
   Layers,
   Image,
   AlertTriangle,
+  Download,
+  Zap,
 } from 'lucide-react'
 
 export function BatchSyncPanel() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
 
-  // Config state
+  // Quick batch state
+  const [quickBatchSize, setQuickBatchSize] = useState(100)
+
+  // Config state for advanced batch sync
   const [batchSize, setBatchSize] = useState(100)
   const [delaySeconds, setDelaySeconds] = useState(2)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [dryRun, setDryRun] = useState(false)
+
+  // Fetch quick batch status (oldest synced date)
+  const { data: quickBatchStatus } = useQuery({
+    queryKey: ['quickBatchStatus'],
+    queryFn: getQuickBatchStatus,
+    refetchInterval: 5000, // Refresh every 5 seconds
+  })
 
   // Fetch batch sync status
   const { data: batchStatus } = useQuery({
@@ -96,6 +117,19 @@ export function BatchSyncPanel() {
     },
   })
 
+  // Quick batch mutation
+  const quickBatchMutation = useMutation({
+    mutationFn: (count: number) => startQuickBatch(count),
+    onSuccess: (data) => {
+      toast({ title: 'Downloading Photos', description: data.message })
+      queryClient.invalidateQueries({ queryKey: ['batchSyncStatus'] })
+      queryClient.invalidateQueries({ queryKey: ['quickBatchStatus'] })
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to Start', description: error.message, variant: 'destructive' })
+    },
+  })
+
   const handleStart = () => {
     startMutation.mutate({
       batch_size: batchSize,
@@ -136,18 +170,87 @@ export function BatchSyncPanel() {
     ? Math.min(100, Math.round((active.records_processed / active.total_records_estimated) * 100))
     : null
 
+  // Format oldest date for display
+  const oldestDateDisplay = quickBatchStatus?.oldest_synced_date
+    ? new Date(quickBatchStatus.oldest_synced_date).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
+    : null
+
+  // Check if any sync is running (including quick batch)
+  const isSyncRunning = active?.status === 'running' || active?.status === 'pending'
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Layers className="h-5 w-5" />
-          Batch Sync
-        </CardTitle>
-        <CardDescription>
-          Manageable sync with configurable batch sizes, pausing, and resume capability
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+    <div className="space-y-6">
+      {/* Quick Import Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5" />
+            Quick Import
+          </CardTitle>
+          <CardDescription>
+            {oldestDateDisplay
+              ? `Oldest synced photo: ${oldestDateDisplay} • ${quickBatchStatus?.total_synced?.toLocaleString() || 0} photos synced`
+              : 'No photos synced yet - will start from most recent'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4">
+            <Select
+              value={String(quickBatchSize)}
+              onValueChange={(v) => setQuickBatchSize(Number(v))}
+            >
+              <SelectTrigger className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="50">50 photos</SelectItem>
+                <SelectItem value="100">100 photos</SelectItem>
+                <SelectItem value="200">200 photos</SelectItem>
+                <SelectItem value="500">500 photos</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              onClick={() => quickBatchMutation.mutate(quickBatchSize)}
+              disabled={quickBatchMutation.isPending || isSyncRunning}
+              className="flex-1"
+            >
+              {quickBatchMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download Next {quickBatchSize} Photos
+                </>
+              )}
+            </Button>
+          </div>
+          {isSyncRunning && (
+            <p className="text-sm text-muted-foreground mt-2">
+              A sync is already in progress. Wait for it to complete.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Advanced Batch Sync Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Layers className="h-5 w-5" />
+            Advanced Batch Sync
+          </CardTitle>
+          <CardDescription>
+            Configurable sync with date ranges, pausing, and resume capability
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
         {/* Active Batch Sync Status */}
         {active && ['pending', 'running', 'paused'].includes(active.status) && (
           <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
@@ -355,5 +458,6 @@ export function BatchSyncPanel() {
         )}
       </CardContent>
     </Card>
+    </div>
   )
 }

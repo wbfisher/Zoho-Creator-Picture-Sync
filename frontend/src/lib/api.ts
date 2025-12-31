@@ -160,3 +160,24 @@ export async function resumeBatchSync(batchId: string): Promise<{ message: strin
 export async function cancelBatchSync(batchId: string): Promise<{ message: string }> {
   return fetchApi(`/sync/batch/${batchId}/cancel`, { method: 'POST' })
 }
+
+// Quick Batch Sync - "Download Next N Photos"
+export interface QuickBatchStatus {
+  oldest_synced_date: string | null
+  total_synced: number
+}
+
+export interface QuickBatchResponse {
+  message: string
+  run_id: string
+  count: number
+  oldest_synced_date: string | null
+}
+
+export async function getQuickBatchStatus(): Promise<QuickBatchStatus> {
+  return fetchApi<QuickBatchStatus>('/sync/quick-batch/status')
+}
+
+export async function startQuickBatch(count: number = 100): Promise<QuickBatchResponse> {
+  return fetchApi(`/sync/quick-batch?count=${count}`, { method: 'POST' })
+}

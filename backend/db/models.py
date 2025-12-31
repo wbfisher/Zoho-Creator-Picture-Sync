@@ -230,11 +230,25 @@ class ImageRepository:
     async def get_stats(self) -> dict:
         total = self.client.table("images").select("id", count="exact").execute()
         processed = self.client.table("images").select("id", count="exact").eq("was_processed", True).execute()
-        
+
         return {
             "total_images": total.count,
             "processed_images": processed.count,
         }
+
+    async def get_oldest_image_date(self) -> Optional[datetime]:
+        """Get the oldest zoho_created_at date among synced images."""
+        result = self.client.table("images").select("zoho_created_at").order(
+            "zoho_created_at", desc=False
+        ).limit(1).execute()
+        if result.data and result.data[0].get("zoho_created_at"):
+            date_str = result.data[0]["zoho_created_at"]
+            try:
+                return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                logger.warning(f"Could not parse oldest image date: {date_str}")
+                return None
+        return None
 
 
 class SyncRunRepository:

@@ -68,6 +68,7 @@ class ZohoCreatorClient:
         self,
         report_link_name: str,
         modified_since: Optional[datetime] = None,
+        added_before: Optional[datetime] = None,
         page_size: int = 200,
         limit: Optional[int] = None,
     ) -> AsyncGenerator[dict, None]:
@@ -76,6 +77,7 @@ class ZohoCreatorClient:
         Args:
             report_link_name: Name of the Zoho report to fetch from
             modified_since: Optional datetime to filter records modified after this time
+            added_before: Optional datetime to filter records created before this time
             page_size: Number of records per API call
             limit: Optional total limit of records to return
         """
@@ -89,10 +91,15 @@ class ZohoCreatorClient:
                 "limit": page_size,
             }
 
-            # Add criteria for modified records if provided
+            # Build criteria from filters
+            criteria_parts = []
             if modified_since:
-                criteria = f"Modified_Time >= '{modified_since.strftime('%d-%b-%Y %H:%M:%S')}'"
-                params["criteria"] = criteria
+                criteria_parts.append(f"Modified_Time >= '{modified_since.strftime('%d-%b-%Y %H:%M:%S')}'")
+            if added_before:
+                criteria_parts.append(f"Added_Time < '{added_before.strftime('%d-%b-%Y %H:%M:%S')}'")
+
+            if criteria_parts:
+                params["criteria"] = " && ".join(criteria_parts)
 
             # Rate limit and reuse client
             await self.rate_limiter.wait()

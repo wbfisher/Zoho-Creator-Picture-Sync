@@ -41,7 +41,11 @@ class SyncEngine:
         self.runs_repo = SyncRunRepository(supabase_client)
 
     async def run_sync(
-        self, full_sync: bool = False, max_records: int = None, run_id: str = None
+        self,
+        full_sync: bool = False,
+        max_records: int = None,
+        run_id: str = None,
+        added_before: Optional[datetime] = None,
     ) -> dict:
         """Run a sync operation with concurrent batch processing.
 
@@ -49,6 +53,7 @@ class SyncEngine:
             full_sync: If True, sync all records. If False, only sync since last run.
             max_records: If set, limit the number of records to process.
             run_id: If provided, use existing run_id instead of creating a new one.
+            added_before: If set, only sync records created before this date (for quick batch).
         """
         if run_id is None:
             run_id = await self.runs_repo.start_run()
@@ -70,7 +75,7 @@ class SyncEngine:
         try:
             # Determine start date for incremental sync
             modified_since = None
-            if not full_sync:
+            if not full_sync and not added_before:
                 last_run = await self.runs_repo.get_last_successful_run()
                 if last_run and last_run.get("completed_at"):
                     modified_since = datetime.fromisoformat(
@@ -79,14 +84,14 @@ class SyncEngine:
 
             logger.info(
                 f"Starting sync (full={full_sync}, modified_since={modified_since}, "
-                f"max_records={max_records}, batch_size={batch_size})"
+                f"added_before={added_before}, max_records={max_records}, batch_size={batch_size})"
             )
 
             # Collect records in batches for concurrent processing
             pending_tasks = []
 
             async for record in self.zoho.fetch_records(
-                self.report_link_name, modified_since
+                self.report_link_name, modified_since, added_before=added_before
             ):
                 stats["records_processed"] += 1
 

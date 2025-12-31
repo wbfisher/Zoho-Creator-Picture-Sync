@@ -172,6 +172,75 @@ async def get_run(run_id: str):
 
 
 # =============================================================================
+# Quick Batch Sync - "Download Next N Photos"
+# =============================================================================
+
+@router.get("/sync/quick-batch/status")
+async def get_quick_batch_status():
+    """Get info for quick batch sync (oldest synced photo date)."""
+    images_repo, _ = get_repos()
+    oldest_date = await images_repo.get_oldest_image_date()
+    stats = await images_repo.get_stats()
+
+    return {
+        "oldest_synced_date": oldest_date.isoformat() if oldest_date else None,
+        "total_synced": stats.get("total_images", 0),
+    }
+
+
+@router.post("/sync/quick-batch")
+async def start_quick_batch(
+    background_tasks: BackgroundTasks,
+    count: int = Query(100, ge=10, le=500, description="Number of photos to download"),
+):
+    """
+    Quick batch sync - automatically continues from oldest synced photo.
+
+    This endpoint:
+    1. Finds the oldest synced photo's creation date
+    2. Fetches photos from Zoho that are older than that date
+    3. Syncs up to 'count' photos
+
+    No date configuration needed - just click and go!
+    """
+    from main import get_sync_engine
+
+    images_repo, runs_repo = get_repos()
+
+    # Check if sync is already running
+    recent_runs = await runs_repo.get_recent_runs(limit=1)
+    if recent_runs and recent_runs[0].get("status") == "running":
+        raise HTTPException(status_code=409, detail="Sync already in progress")
+
+    # Get oldest synced photo date
+    oldest_date = await images_repo.get_oldest_image_date()
+
+    # Create run record
+    run_id = await runs_repo.start_run()
+
+    # Run sync in background
+    async def run_quick_sync():
+        engine = get_sync_engine()
+        await engine.run_sync(
+            full_sync=True,  # Don't use modified_since logic
+            max_records=count,
+            run_id=run_id,
+            added_before=oldest_date,  # Only get photos older than what we have
+        )
+
+    background_tasks.add_task(run_quick_sync)
+
+    return {
+        "message": f"Downloading up to {count} photos" + (
+            f" older than {oldest_date.strftime('%b %d, %Y')}" if oldest_date else " (starting from most recent)"
+        ),
+        "run_id": run_id,
+        "count": count,
+        "oldest_synced_date": oldest_date.isoformat() if oldest_date else None,
+    }
+
+
+# =============================================================================
 # Batch Sync Endpoints
 # =============================================================================
 
