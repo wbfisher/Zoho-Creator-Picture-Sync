@@ -555,6 +555,49 @@ async def debug_images():
     }
 
 
+@router.get("/debug/counts")
+async def debug_counts():
+    """Debug endpoint: Get detailed count breakdown of images in database."""
+    settings = get_settings()
+    client = get_supabase_client(settings.supabase_url, settings.supabase_service_key)
+
+    # Total images
+    total_result = client.table("images").select("id", count="exact").execute()
+    total_images = total_result.count or 0
+
+    # Unique Zoho records (to see records vs images ratio)
+    all_images = client.table("images").select("zoho_record_id, field_name, synced_at").execute()
+
+    unique_records = set()
+    field_names = {}
+    for img in all_images.data:
+        unique_records.add(img.get("zoho_record_id"))
+        field = img.get("field_name", "unknown")
+        field_names[field] = field_names.get(field, 0) + 1
+
+    # Recent sync runs
+    runs_result = client.table("sync_runs").select("*").order("started_at", desc=True).limit(5).execute()
+
+    return {
+        "total_images": total_images,
+        "unique_zoho_records": len(unique_records),
+        "images_per_record_avg": round(total_images / len(unique_records), 2) if unique_records else 0,
+        "field_name_breakdown": field_names,
+        "recent_sync_runs": [
+            {
+                "id": r.get("id")[:8],
+                "status": r.get("status"),
+                "records_processed": r.get("records_processed"),
+                "images_synced": r.get("images_synced"),
+                "images_skipped": r.get("images_skipped"),
+                "errors": r.get("errors"),
+                "started_at": r.get("started_at"),
+            }
+            for r in runs_result.data
+        ],
+    }
+
+
 @router.get("/debug/sample-record")
 async def get_sample_record():
     """Debug endpoint: Get a sample record from Zoho to inspect structure."""
