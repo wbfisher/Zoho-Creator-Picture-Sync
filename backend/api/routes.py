@@ -629,6 +629,35 @@ async def get_sample_record():
         }
 
 
+@router.get("/debug/db-sample")
+async def get_db_sample():
+    """Debug endpoint: Get a sample image from database to inspect zoho_metadata structure."""
+    settings = get_settings()
+    client = get_supabase_client(settings)
+
+    result = client.table("images").select("id, zoho_metadata").limit(1).execute()
+
+    if result.data and len(result.data) > 0:
+        metadata = result.data[0].get("zoho_metadata", {})
+        project1 = metadata.get("Project1")
+        dept = metadata.get("Project_Department1")
+        timesheet = metadata.get("Add_Job_Captain_Time_Sheet_Number")
+
+        return {
+            "success": True,
+            "image_id": result.data[0]["id"],
+            "Project1_raw": project1,
+            "Project1_type": type(project1).__name__,
+            "Project1_display_value": project1.get("display_value") if isinstance(project1, dict) else None,
+            "Department_raw": dept,
+            "Department_type": type(dept).__name__,
+            "Timesheet_raw": timesheet,
+            "Timesheet_type": type(timesheet).__name__,
+        }
+
+    return {"success": False, "message": "No images in database"}
+
+
 # Simple in-memory cache for filter values
 _filter_cache = {
     "data": None,
