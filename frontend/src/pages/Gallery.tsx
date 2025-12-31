@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import { useToast } from '@/hooks/use-toast'
 import { debounce, getDateRangeFromPreset, DATE_PRESETS, SORT_OPTIONS, type DatePreset } from '@/lib/utils'
 import {
@@ -206,36 +207,26 @@ export default function Gallery() {
           />
         </div>
 
-        {/* Filters */}
-        <Select
-          value={filters.job_captain_timesheet || '__all__'}
-          onValueChange={(val) => setFilter('job_captain_timesheet', val === '__all__' ? undefined : val)}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Job Captain Timesheet" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All Timesheets</SelectItem>
-            {filterValues?.job_captain_timesheets.map((jc) => (
-              <SelectItem key={jc} value={jc}>{jc}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Searchable Filters */}
+        <SearchableSelect
+          options={filterValues?.job_captain_timesheets.map((jc) => ({ value: jc, label: jc })) ?? []}
+          value={filters.job_captain_timesheet}
+          onValueChange={(val) => setFilter('job_captain_timesheet', val)}
+          placeholder="All Timesheets"
+          searchPlaceholder="Search timesheets..."
+          emptyText="No timesheets found"
+          className="w-[200px]"
+        />
 
-        <Select
-          value={filters.project_name || '__all__'}
-          onValueChange={(val) => setFilter('project_name', val === '__all__' ? undefined : val)}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Project" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All Projects</SelectItem>
-            {filterValues?.project_names.map((proj) => (
-              <SelectItem key={proj} value={proj}>{proj}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          options={filterValues?.project_names.map((proj) => ({ value: proj, label: proj })) ?? []}
+          value={filters.project_name}
+          onValueChange={(val) => setFilter('project_name', val)}
+          placeholder="All Projects"
+          searchPlaceholder="Search projects..."
+          emptyText="No projects found"
+          className="w-[200px]"
+        />
 
         <Select
           value={filters.department || '__all__'}
