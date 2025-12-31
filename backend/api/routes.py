@@ -130,9 +130,9 @@ async def list_images(
         if not img.get("job_captain_timesheet"):
             img["job_captain_timesheet"] = metadata.get("Add_Job_Captain_Time_Sheet_Number")
         if not img.get("project_name"):
-            img["project_name"] = metadata.get("Project")
+            img["project_name"] = metadata.get("Project1")
         if not img.get("department"):
-            img["department"] = metadata.get("Project_Department")
+            img["department"] = metadata.get("Project_Department1")
         if not img.get("photo_origin"):
             img["photo_origin"] = metadata.get("Photo_Origin")
 
@@ -477,8 +477,8 @@ async def get_config():
         "image_quality": settings.image_quality,
         # Field mappings from defaults (could be made configurable)
         "field_job_captain_timesheet": "Add_Job_Captain_Time_Sheet_Number",
-        "field_project_name": "Project",
-        "field_department": "Project_Department",
+        "field_project_name": "Project1",
+        "field_department": "Project_Department1",
         "field_tags": "Tags",
         "field_description": "Description",
     }
@@ -680,10 +680,10 @@ async def get_filter_values():
                     jct = metadata.get("Add_Job_Captain_Time_Sheet_Number")
                     if jct:
                         job_captain_timesheets.add(str(jct))
-                    proj = metadata.get("Project")
+                    proj = metadata.get("Project1")
                     if proj:
                         project_names.add(str(proj))
-                    dept = metadata.get("Project_Department")
+                    dept = metadata.get("Project_Department1")
                     if dept:
                         departments.add(str(dept))
                     origin = metadata.get("Photo_Origin")
