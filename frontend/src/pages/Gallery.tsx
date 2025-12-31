@@ -199,7 +199,10 @@ export default function Gallery() {
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
-  const activeFiltersCount = Object.values(filters).filter(Boolean).length
+  // Count active filters, excluding sort options (which are always set)
+  const activeFiltersCount = Object.entries(filters)
+    .filter(([key, value]) => value && key !== 'sort_by' && key !== 'sort_order')
+    .length
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col gap-4">
