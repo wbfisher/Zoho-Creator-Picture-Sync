@@ -658,6 +658,45 @@ async def get_db_sample():
     return {"success": False, "message": "No images in database"}
 
 
+@router.get("/debug/test-filter")
+async def test_filter(project_name: str = None):
+    """Debug endpoint: Test project filter query."""
+    settings = get_settings()
+    client = get_supabase_client(settings)
+
+    # First, get a sample to see what we're filtering against
+    sample = client.table("images").select("id, zoho_metadata").limit(1).execute()
+    sample_project = None
+    if sample.data:
+        meta = sample.data[0].get("zoho_metadata", {})
+        sample_project = meta.get("Project1")
+
+    # Try the filter
+    query = client.table("images").select("id", count="exact")
+    if project_name:
+        query = query.contains(
+            "zoho_metadata",
+            {"Project1": {"display_value": project_name}}
+        )
+    result = query.limit(5).execute()
+
+    return {
+        "filter_value": project_name,
+        "sample_Project1_in_db": sample_project,
+        "matched_count": result.count,
+        "matched_ids": [r["id"] for r in result.data] if result.data else [],
+    }
+
+
+@router.post("/debug/clear-cache")
+async def clear_filter_cache():
+    """Clear the filter values cache."""
+    global _filter_cache
+    _filter_cache["data"] = None
+    _filter_cache["timestamp"] = 0
+    return {"success": True, "message": "Filter cache cleared"}
+
+
 # Simple in-memory cache for filter values
 _filter_cache = {
     "data": None,
