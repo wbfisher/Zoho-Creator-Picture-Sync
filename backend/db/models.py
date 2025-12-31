@@ -165,22 +165,18 @@ class ImageRepository:
             query = query.eq("category", category)
 
         # Filter by zoho_metadata fields
-        # For lookup fields (dict with display_value), use nested contains
+        # Timesheet is a dict with display_value, others are plain strings
         if job_captain_timesheet:
             query = query.contains(
                 "zoho_metadata",
                 {"Add_Job_Captain_Time_Sheet_Number": {"display_value": job_captain_timesheet}}
             )
         if project_name:
-            query = query.contains(
-                "zoho_metadata",
-                {"Project1": {"display_value": project_name}}
-            )
+            # Project1 is stored as a plain string
+            query = query.contains("zoho_metadata", {"Project1": project_name})
         if department:
-            query = query.contains(
-                "zoho_metadata",
-                {"Project_Department1": {"display_value": department}}
-            )
+            # Department is stored as a plain string
+            query = query.contains("zoho_metadata", {"Project_Department1": department})
         if photo_origin:
             query = query.contains("zoho_metadata", {"Photo_Origin": photo_origin})
 
@@ -223,22 +219,18 @@ class ImageRepository:
             query = query.eq("category", category)
 
         # Filter by zoho_metadata fields
-        # For lookup fields (dict with display_value), use nested contains
+        # Timesheet is a dict with display_value, others are plain strings
         if job_captain_timesheet:
             query = query.contains(
                 "zoho_metadata",
                 {"Add_Job_Captain_Time_Sheet_Number": {"display_value": job_captain_timesheet}}
             )
         if project_name:
-            query = query.contains(
-                "zoho_metadata",
-                {"Project1": {"display_value": project_name}}
-            )
+            # Project1 is stored as a plain string
+            query = query.contains("zoho_metadata", {"Project1": project_name})
         if department:
-            query = query.contains(
-                "zoho_metadata",
-                {"Project_Department1": {"display_value": department}}
-            )
+            # Department is stored as a plain string
+            query = query.contains("zoho_metadata", {"Project_Department1": department})
         if photo_origin:
             query = query.contains("zoho_metadata", {"Photo_Origin": photo_origin})
 
