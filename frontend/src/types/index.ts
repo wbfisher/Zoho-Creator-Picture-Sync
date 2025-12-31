@@ -76,6 +76,9 @@ export interface FilterOptions {
   search?: string
   date_from?: string
   date_to?: string
+  date_preset?: string
+  sort_by?: string
+  sort_order?: string
 }
 
 export interface PaginatedResponse<T> {

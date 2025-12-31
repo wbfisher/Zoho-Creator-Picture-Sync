@@ -152,6 +152,8 @@ class ImageRepository:
         search: str = None,
         date_from: str = None,
         date_to: str = None,
+        sort_by: str = "zoho_created_at",
+        sort_order: str = "desc",
         limit: int = 100,
         offset: int = 0
     ) -> list[dict]:
@@ -176,13 +178,19 @@ class ImageRepository:
         if search:
             query = query.or_(f"original_filename.ilike.%{search}%,description.ilike.%{search}%")
 
-        # Date filters
+        # Date filters (on zoho_created_at for when photo was taken)
         if date_from:
-            query = query.gte("synced_at", date_from)
+            query = query.gte("zoho_created_at", date_from)
         if date_to:
-            query = query.lte("synced_at", date_to)
+            query = query.lte("zoho_created_at", date_to)
 
-        result = query.order("synced_at", desc=True).range(offset, offset + limit - 1).execute()
+        # Sorting - validate allowed fields
+        allowed_sort_fields = ["zoho_created_at", "synced_at", "original_filename"]
+        if sort_by not in allowed_sort_fields:
+            sort_by = "zoho_created_at"
+        is_desc = sort_order.lower() == "desc"
+
+        result = query.order(sort_by, desc=is_desc).range(offset, offset + limit - 1).execute()
         return result.data
 
     async def get_count(
@@ -218,15 +226,15 @@ class ImageRepository:
         if search:
             query = query.or_(f"original_filename.ilike.%{search}%,description.ilike.%{search}%")
 
-        # Date filters
+        # Date filters (on zoho_created_at for when photo was taken)
         if date_from:
-            query = query.gte("synced_at", date_from)
+            query = query.gte("zoho_created_at", date_from)
         if date_to:
-            query = query.lte("synced_at", date_to)
+            query = query.lte("zoho_created_at", date_to)
 
         result = query.execute()
         return result.count or 0
-    
+
     async def get_stats(self) -> dict:
         total = self.client.table("images").select("id", count="exact").execute()
         processed = self.client.table("images").select("id", count="exact").eq("was_processed", True).execute()

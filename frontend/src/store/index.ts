@@ -37,6 +37,9 @@ const defaultFilters: FilterOptions = {
   search: undefined,
   date_from: undefined,
   date_to: undefined,
+  date_preset: undefined,
+  sort_by: 'zoho_created_at',
+  sort_order: 'desc',
 }
 
 export const useGalleryStore = create<GalleryState>((set, get) => ({

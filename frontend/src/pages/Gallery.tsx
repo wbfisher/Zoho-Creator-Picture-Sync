@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
-import { debounce } from '@/lib/utils'
+import { debounce, getDateRangeFromPreset, DATE_PRESETS, SORT_OPTIONS, type DatePreset } from '@/lib/utils'
 import {
   Search,
   X,
@@ -29,6 +29,8 @@ import {
   CheckSquare,
   Square,
   Image as ImageIcon,
+  ArrowUpDown,
+  Calendar,
 } from 'lucide-react'
 import JSZip from 'jszip'
 
@@ -109,6 +111,33 @@ export default function Gallery() {
     debounce((value: string) => setFilter('search', value || undefined), 300),
     [setFilter]
   )
+
+  // Handle sort change
+  const handleSortChange = (value: string) => {
+    const [sortBy, sortOrder] = value.split(':')
+    setFilter('sort_by', sortBy)
+    setFilter('sort_order', sortOrder)
+  }
+
+  // Handle date preset change
+  const handleDatePresetChange = (preset: string) => {
+    if (preset === '__all__') {
+      setFilter('date_preset', undefined)
+      setFilter('date_from', undefined)
+      setFilter('date_to', undefined)
+      return
+    }
+
+    setFilter('date_preset', preset)
+    const range = getDateRangeFromPreset(preset as DatePreset)
+    if (range) {
+      setFilter('date_from', range.from)
+      setFilter('date_to', range.to)
+    }
+  }
+
+  // Get current sort value for Select
+  const currentSortValue = `${filters.sort_by || 'zoho_created_at'}:${filters.sort_order || 'desc'}`
 
   // Bulk download
   const handleBulkDownload = async () => {
@@ -234,6 +263,36 @@ export default function Gallery() {
             <SelectItem value="__all__">All Origins</SelectItem>
             {filterValues?.photo_origins?.map((origin) => (
               <SelectItem key={origin} value={origin}>{origin}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Date Filter */}
+        <Select
+          value={filters.date_preset || '__all__'}
+          onValueChange={handleDatePresetChange}
+        >
+          <SelectTrigger className="w-[150px]">
+            <Calendar className="mr-2 h-4 w-4" />
+            <SelectValue placeholder="Date" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All Dates</SelectItem>
+            {DATE_PRESETS.map((preset) => (
+              <SelectItem key={preset.value} value={preset.value}>{preset.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Sort */}
+        <Select value={currentSortValue} onValueChange={handleSortChange}>
+          <SelectTrigger className="w-[160px]">
+            <ArrowUpDown className="mr-2 h-4 w-4" />
+            <SelectValue placeholder="Sort" />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>

@@ -89,12 +89,14 @@ async def list_images(
     department: Optional[str] = Query(None, description="Filter by department"),
     photo_origin: Optional[str] = Query(None, description="Filter by photo origin"),
     search: Optional[str] = Query(None, description="Search in filename and description"),
-    date_from: Optional[str] = Query(None, description="Filter by synced date from (ISO format)"),
-    date_to: Optional[str] = Query(None, description="Filter by synced date to (ISO format)"),
+    date_from: Optional[str] = Query(None, description="Filter by photo date from (ISO format)"),
+    date_to: Optional[str] = Query(None, description="Filter by photo date to (ISO format)"),
+    sort_by: Optional[str] = Query("zoho_created_at", description="Sort by: zoho_created_at, synced_at, original_filename"),
+    sort_order: Optional[str] = Query("desc", description="Sort order: asc or desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """List synced images with optional filtering."""
+    """List synced images with optional filtering and sorting."""
     images_repo, _ = get_repos()
 
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
@@ -109,6 +111,8 @@ async def list_images(
         search=search,
         date_from=date_from,
         date_to=date_to,
+        sort_by=sort_by or "zoho_created_at",
+        sort_order=sort_order or "desc",
         limit=limit,
         offset=offset,
     )
