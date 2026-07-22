@@ -66,7 +66,7 @@ def get_sync_engine() -> SyncEngine:
             image_processor=processor,
             report_link_name=settings.zoho_report_link_name,
             # TODO: Configure these based on your Zoho form
-            tag_fields=["Tags", "Category", "Project"],  # Adjust to your fields
+            tag_fields=["Tags", "Category", "Project1"],  # Adjust to your fields
             category_field="Category",
             description_field="Description",
         )
