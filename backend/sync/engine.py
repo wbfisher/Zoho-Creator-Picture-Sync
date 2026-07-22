@@ -134,12 +134,27 @@ class SyncEngine:
                 run_id, status, error_log if error_log else None
             )
 
+            if status == "completed_with_errors":
+                await self._alert(
+                    "Sync completed with errors",
+                    f"Run {run_id}: {stats['errors']} errors out of "
+                    f"{stats['records_processed']} records "
+                    f"({stats['images_synced']} synced, {stats['images_skipped']} skipped). "
+                    f"First error: {error_log[0] if error_log else 'n/a'}",
+                )
+
         except Exception as e:
             logger.exception(f"Sync failed: {e}")
             error_log.append(
                 {"fatal_error": str(e), "timestamp": datetime.utcnow().isoformat()}
             )
             await self.runs_repo.complete_run(run_id, "failed", error_log)
+            await self._alert(
+                "Sync FAILED",
+                f"Run {run_id} failed with: {type(e).__name__}: {e}. "
+                "If this is a token error, regenerate the refresh token in Zoho API "
+                "Console and update ZOHO_REFRESH_TOKEN on Railway.",
+            )
             raise
         finally:
             # Clean up the Zoho client
@@ -147,6 +162,14 @@ class SyncEngine:
 
         logger.info(f"Sync completed: {stats}")
         return stats
+
+    async def _alert(self, subject: str, message: str):
+        """Send a failure alert without ever breaking the sync itself."""
+        try:
+            from alerts import send_alert
+            await send_alert(subject, message)
+        except Exception as e:
+            logger.error(f"Alerting failed: {e}")
 
     async def _process_record_with_semaphore(
         self,
@@ -231,12 +254,13 @@ class SyncEngine:
                 cat_folder = category or "uncategorized"
                 storage_path = f"{cat_folder}/{date_folder}/{record_id}_{final_filename}"
 
-                # Upload to Supabase Storage
+                # Upload to Supabase Storage (upsert: overwrite if a previous
+                # run uploaded the file but died before writing the DB row)
                 content_type = mimetypes.guess_type(final_filename)[0] or "image/webp"
                 self.supabase.storage.from_(self.bucket).upload(
                     storage_path,
                     processed_bytes,
-                    {"content-type": content_type}
+                    {"content-type": content_type, "x-upsert": "true"}
                 )
 
                 # Save metadata to database

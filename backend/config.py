@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     sync_batch_size: int = 5  # Concurrent downloads during sync
     sync_rate_limit: float = 5.0  # Max Zoho API calls per second
 
+    # Alerting: Slack/Discord/generic webhook URL for sync failure notifications.
+    # If empty, failures are logged at ERROR level only.
+    alert_webhook_url: str = ""
+
     # App
     app_secret_key: str = "change-me-in-production"
     log_level: str = "INFO"

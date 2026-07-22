@@ -116,6 +116,14 @@ class ZohoCreatorClient:
                     logger.warning("Rate limited by Zoho API, waiting 60s...")
                     await asyncio.sleep(60)
                     continue
+                if e.response.status_code == 404 and from_index > 0:
+                    # Zoho returns 404 (not an empty list) when paginating past
+                    # the last record. This is normal end-of-report, not an error.
+                    logger.info(
+                        f"Pagination reached end of report at from={from_index} "
+                        f"({total_yielded} records yielded)"
+                    )
+                    break
                 raise
 
             records = data.get("data", [])

@@ -455,8 +455,74 @@ async def cancel_batch_sync(batch_id: str):
 
 @router.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+    """Health check that verifies the sync can actually work.
+
+    Checks:
+    - zoho_auth: a valid access token can be obtained (cached; at most one
+      real refresh per hour, so uptime monitors can poll freely)
+    - last_run: status of the most recent sync run
+    - last_success: how long since the last fully successful sync
+
+    Overall status is "healthy" or "degraded" (HTTP status stays 200 so
+    Railway's deploy healthcheck isn't affected; monitor the "status"
+    keyword with your uptime checker).
+    """
+    checks = {}
+    problems = []
+
+    # 1. Zoho token check
+    try:
+        from main import get_sync_engine
+        engine = get_sync_engine()
+        zoho_check = await engine.zoho.auth.check()
+    except Exception as e:
+        zoho_check = {"ok": False, "error": str(e)}
+    checks["zoho_auth"] = zoho_check
+    if not zoho_check.get("ok"):
+        problems.append("Zoho token refresh failing")
+
+    # 2. Last run + last success
+    try:
+        _, runs_repo = get_repos()
+        recent = await runs_repo.get_recent_runs(limit=1)
+        last_run = recent[0] if recent else None
+        if last_run:
+            checks["last_run"] = {
+                "status": last_run.get("status"),
+                "started_at": last_run.get("started_at"),
+                "images_synced": last_run.get("images_synced"),
+                "errors": last_run.get("errors"),
+            }
+            if last_run.get("status") == "failed":
+                problems.append("Last sync run failed")
+        else:
+            checks["last_run"] = None
+
+        last_success = await runs_repo.get_last_successful_run()
+        if last_success and last_success.get("completed_at"):
+            completed = datetime.fromisoformat(
+                last_success["completed_at"].replace("Z", "+00:00")
+            )
+            age_hours = (datetime.utcnow() - completed.replace(tzinfo=None)).total_seconds() / 3600
+            checks["last_success"] = {
+                "completed_at": last_success["completed_at"],
+                "hours_ago": round(age_hours, 1),
+            }
+            if age_hours > 48:
+                problems.append(f"No successful sync in {round(age_hours)} hours")
+        else:
+            checks["last_success"] = None
+            problems.append("No successful sync recorded")
+    except Exception as e:
+        checks["sync_history"] = {"ok": False, "error": str(e)}
+        problems.append("Could not read sync history from Supabase")
+
+    return {
+        "status": "degraded" if problems else "healthy",
+        "problems": problems,
+        "checks": checks,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 
 @router.get("/config")
