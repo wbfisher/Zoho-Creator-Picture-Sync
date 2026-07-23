@@ -29,6 +29,7 @@ import {
   CheckSquare,
   Square,
   Image as ImageIcon,
+  ExternalLink,
 } from 'lucide-react'
 import JSZip from 'jszip'
 
@@ -377,6 +378,24 @@ export default function Gallery() {
         carousel={{ finite: false }}
         zoom={{ maxZoomPixelRatio: 3 }}
         thumbnails={{ position: 'bottom', width: 100, height: 60 }}
+        on={{ view: ({ index }) => setLightboxIndex(index) }}
+        toolbar={{
+          buttons: [
+            lightboxIndex >= 0 && allImages[lightboxIndex]?.zoho_record_url ? (
+              <a
+                key="zoho-record-link"
+                href={allImages[lightboxIndex].zoho_record_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="yarl__button"
+                title="Open record in Zoho Creator"
+              >
+                <ExternalLink className="h-6 w-6" />
+              </a>
+            ) : null,
+            'close',
+          ],
+        }}
       />
     </div>
   )

@@ -14,6 +14,7 @@ export interface Image {
   zoho_modified_at: string | null
   synced_at: string
   url?: string
+  zoho_record_url?: string
   // Fields for categorization
   job_captain_timesheet: string | null
   project_name: string | null

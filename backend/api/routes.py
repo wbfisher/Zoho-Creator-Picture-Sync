@@ -124,6 +124,15 @@ async def list_images(
         if img.get("storage_path"):
             img["url"] = f"{base_url}/{img['storage_path']}"
 
+    # Link back to the exact record in Zoho Creator
+    zoho_report_base = (
+        f"https://creator.zoho.com/{settings.zoho_account_owner_name}/"
+        f"{settings.zoho_app_link_name}/#Report:{settings.zoho_report_link_name}"
+    )
+    for img in images:
+        if img.get("zoho_record_id"):
+            img["zoho_record_url"] = f"{zoho_report_base}?ID={img['zoho_record_id']}"
+
     # Extract categorization fields from zoho_metadata for frontend
     for img in images:
         metadata = img.get("zoho_metadata", {})
