@@ -245,7 +245,7 @@ export default function Settings() {
                     id="field_department"
                     value={currentConfig.field_department || ''}
                     onChange={(e) => handleChange('field_department', e.target.value)}
-                    placeholder="Project_Department"
+                    placeholder="Project_Department1"
                   />
                   <p className="text-xs text-muted-foreground">
                     Field containing the department name

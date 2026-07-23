@@ -6,7 +6,10 @@ import Lightbox from 'yet-another-react-lightbox'
 import 'yet-another-react-lightbox/styles.css'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import Thumbnails from 'yet-another-react-lightbox/plugins/thumbnails'
+import Captions from 'yet-another-react-lightbox/plugins/captions'
+import DownloadPlugin from 'yet-another-react-lightbox/plugins/download'
 import 'yet-another-react-lightbox/plugins/thumbnails.css'
+import 'yet-another-react-lightbox/plugins/captions.css'
 
 import { getImages, getFilterValues } from '@/lib/api'
 import { useGalleryStore } from '@/store'
@@ -19,8 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import { useToast } from '@/hooks/use-toast'
-import { debounce } from '@/lib/utils'
+import { debounce, getDateRangeFromPreset, DATE_PRESETS, SORT_OPTIONS, type DatePreset } from '@/lib/utils'
 import {
   Search,
   X,
@@ -29,6 +33,8 @@ import {
   CheckSquare,
   Square,
   Image as ImageIcon,
+  ArrowUpDown,
+  Calendar,
   ExternalLink,
 } from 'lucide-react'
 import JSZip from 'jszip'
@@ -95,12 +101,17 @@ export default function Gallery() {
     [allImages]
   )
 
-  // Lightbox slides
+  // Lightbox slides with captions
   const slides = useMemo(() =>
     allImages.map((img) => ({
       src: img.url || '',
       alt: img.original_filename,
-      title: img.original_filename,
+      title: img.project_name || img.original_filename,
+      description: [
+        img.department,
+        img.zoho_created_at ? new Date(img.zoho_created_at).toLocaleDateString() : null,
+      ].filter(Boolean).join(' • ') || undefined,
+      download: img.url,
     })),
     [allImages]
   )
@@ -110,6 +121,33 @@ export default function Gallery() {
     debounce((value: string) => setFilter('search', value || undefined), 300),
     [setFilter]
   )
+
+  // Handle sort change
+  const handleSortChange = (value: string) => {
+    const [sortBy, sortOrder] = value.split(':')
+    setFilter('sort_by', sortBy)
+    setFilter('sort_order', sortOrder)
+  }
+
+  // Handle date preset change
+  const handleDatePresetChange = (preset: string) => {
+    if (preset === '__all__') {
+      setFilter('date_preset', undefined)
+      setFilter('date_from', undefined)
+      setFilter('date_to', undefined)
+      return
+    }
+
+    setFilter('date_preset', preset)
+    const range = getDateRangeFromPreset(preset as DatePreset)
+    if (range) {
+      setFilter('date_from', range.from)
+      setFilter('date_to', range.to)
+    }
+  }
+
+  // Get current sort value for Select
+  const currentSortValue = `${filters.sort_by || 'zoho_created_at'}:${filters.sort_order || 'desc'}`
 
   // Bulk download
   const handleBulkDownload = async () => {
@@ -162,7 +200,10 @@ export default function Gallery() {
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
-  const activeFiltersCount = Object.values(filters).filter(Boolean).length
+  // Count active filters, excluding sort options (which are always set)
+  const activeFiltersCount = Object.entries(filters)
+    .filter(([key, value]) => value && key !== 'sort_by' && key !== 'sort_order')
+    .length
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col gap-4">
@@ -178,36 +219,29 @@ export default function Gallery() {
           />
         </div>
 
-        {/* Filters */}
-        <Select
-          value={filters.job_captain_timesheet || '__all__'}
-          onValueChange={(val) => setFilter('job_captain_timesheet', val === '__all__' ? undefined : val)}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Job Captain Timesheet" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All Timesheets</SelectItem>
-            {filterValues?.job_captain_timesheets.map((jc) => (
-              <SelectItem key={jc} value={jc}>{jc}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Searchable Filters */}
+        <SearchableSelect
+          options={filterValues?.job_captain_timesheets.map((jc) => ({
+            value: jc,
+            label: jc
+          })) ?? []}
+          value={filters.job_captain_timesheet}
+          onValueChange={(val) => setFilter('job_captain_timesheet', val)}
+          placeholder="All Timesheets"
+          searchPlaceholder="Search timesheets..."
+          emptyText="No timesheets found"
+          className="w-[220px]"
+        />
 
-        <Select
-          value={filters.project_name || '__all__'}
-          onValueChange={(val) => setFilter('project_name', val === '__all__' ? undefined : val)}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Project" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All Projects</SelectItem>
-            {filterValues?.project_names.map((proj) => (
-              <SelectItem key={proj} value={proj}>{proj}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          options={filterValues?.project_names.map((proj) => ({ value: proj, label: proj })) ?? []}
+          value={filters.project_name}
+          onValueChange={(val) => setFilter('project_name', val)}
+          placeholder="All Projects"
+          searchPlaceholder="Search projects..."
+          emptyText="No projects found"
+          className="w-[200px]"
+        />
 
         <Select
           value={filters.department || '__all__'}
@@ -235,6 +269,36 @@ export default function Gallery() {
             <SelectItem value="__all__">All Origins</SelectItem>
             {filterValues?.photo_origins?.map((origin) => (
               <SelectItem key={origin} value={origin}>{origin}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Date Filter */}
+        <Select
+          value={filters.date_preset || '__all__'}
+          onValueChange={handleDatePresetChange}
+        >
+          <SelectTrigger className="w-[150px]">
+            <Calendar className="mr-2 h-4 w-4" />
+            <SelectValue placeholder="Date" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All Dates</SelectItem>
+            {DATE_PRESETS.map((preset) => (
+              <SelectItem key={preset.value} value={preset.value}>{preset.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Sort */}
+        <Select value={currentSortValue} onValueChange={handleSortChange}>
+          <SelectTrigger className="w-[160px]">
+            <ArrowUpDown className="mr-2 h-4 w-4" />
+            <SelectValue placeholder="Sort" />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -349,6 +413,17 @@ export default function Gallery() {
                           </svg>
                         )}
                       </div>
+                      {/* Metadata overlay on hover */}
+                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity rounded-b-md">
+                        <div className="text-xs text-white truncate">
+                          {originalImage.project_name || 'No Project'}
+                        </div>
+                        <div className="text-xs text-white/70 truncate">
+                          {originalImage.department}
+                          {originalImage.department && originalImage.zoho_created_at && ' • '}
+                          {originalImage.zoho_created_at && new Date(originalImage.zoho_created_at).toLocaleDateString()}
+                        </div>
+                      </div>
                     </div>
                   )
                 }
@@ -374,10 +449,11 @@ export default function Gallery() {
         close={() => setLightboxIndex(-1)}
         index={lightboxIndex}
         slides={slides}
-        plugins={[Zoom, Thumbnails]}
+        plugins={[Zoom, Thumbnails, Captions, DownloadPlugin]}
         carousel={{ finite: false }}
         zoom={{ maxZoomPixelRatio: 3 }}
         thumbnails={{ position: 'bottom', width: 100, height: 60 }}
+        captions={{ showToggle: true, descriptionTextAlign: 'center' }}
         on={{ view: ({ index }) => setLightboxIndex(index) }}
         toolbar={{
           buttons: [

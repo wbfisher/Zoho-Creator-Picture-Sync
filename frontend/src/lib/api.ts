@@ -70,6 +70,8 @@ export async function getImages(
   if (filters.search) params.append('search', filters.search)
   if (filters.date_from) params.append('date_from', filters.date_from)
   if (filters.date_to) params.append('date_to', filters.date_to)
+  if (filters.sort_by) params.append('sort_by', filters.sort_by)
+  if (filters.sort_order) params.append('sort_order', filters.sort_order)
 
   const data = await fetchApi<{ images: Image[]; count: number }>(`/images?${params}`)
   return {
